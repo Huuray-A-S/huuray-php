@@ -786,6 +786,40 @@ final class ClientTest extends TestCase
         self::assertArrayNotHasKey('Content-Type', $transport->calls[0]->headers);
     }
 
+    public function testNoExceptionTraceCarriesAQueryValuePassedToRequest(): void
+    {
+        // Off is PHP's built-in default: exception traces then keep every argument.
+        // Forced here so the trace assertions can never pass vacuously.
+        $ignoreArgs = ini_set('zend.exception_ignore_args', '0');
+        [$client, $transport] = TestClient::make(new MockResponse(status: 404));
+        $caught = null;
+
+        try {
+            // A literal in the test body, so no test frame's own arguments hold it.
+            $client->request('GET', '/v4/ExchangeRates', query: ['FromCurrency' => 'Pl4nted-Query-Value', 'ToCurrency' => 'DKK']);
+        } catch (HuurayException $e) {
+            $caught = $e;
+        } finally {
+            ini_set('zend.exception_ignore_args', $ignoreArgs === false ? '0' : $ignoreArgs);
+        }
+
+        self::assertNotNull($caught, 'Expected the call to throw.');
+        self::assertCount(1, $transport->calls);
+        // The request really carried it, so its absence below means something.
+        self::assertSame('Pl4nted-Query-Value', $transport->calls[0]->query['FromCurrency'] ?? null);
+
+        $traces = '';
+        for ($exception = $caught; $exception !== null; $exception = $exception->getPrevious()) {
+            $traces .= print_r($exception->getTrace(), true);
+        }
+
+        // Arguments were recorded, and the sensitive ones were replaced.
+        self::assertStringContainsString('/v4/ExchangeRates', $traces);
+        self::assertStringContainsString('SensitiveParameterValue', $traces);
+
+        self::assertStringNotContainsString('Pl4nted-Query-Value', $traces);
+    }
+
     /** @return iterable<string, array{string, string}> */
     public static function methodsAndPathsThatAreNotSafeToSend(): iterable
     {

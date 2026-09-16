@@ -260,6 +260,7 @@ class HuurayClient
         string $path,
         #[\SensitiveParameter]
         mixed $body = null,
+        #[\SensitiveParameter]
         array $query = [],
         bool $retryable = false,
     ): mixed {
@@ -288,6 +289,7 @@ class HuurayClient
         string $path,
         #[\SensitiveParameter]
         mixed $body = null,
+        #[\SensitiveParameter]
         array $query = [],
         bool $retryable = false,
     ): RawResponse {
