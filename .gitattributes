@@ -1,0 +1,17 @@
+# Normalise line endings so the repo is identical on Windows, macOS and Linux
+# runners — the spec-drift diff and the coding-style check both depend on it.
+* text=auto eol=lf
+*.svg text eol=lf
+*.png binary
+
+# Keep the Packagist dist lean: development files stay in the repository and
+# out of the archive that `composer require` downloads.
+/.github export-ignore
+/tests export-ignore
+/scripts export-ignore
+/examples export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/phpunit.xml.dist export-ignore
+/phpstan.neon.dist export-ignore
+/.php-cs-fixer.dist.php export-ignore

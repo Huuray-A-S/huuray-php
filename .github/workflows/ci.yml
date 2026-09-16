@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4', '8.5']
+        os: [ubuntu-latest]
+        include:
+          - php: '8.4'
+            os: windows-latest
+          - php: '8.4'
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, json
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      # php-cs-fixer pulls in symfony/polyfill-php84 and polyfill-mbstring, which define PHP 8.3/8.4 functions
+      # (array_find, mb_trim, ...) on older PHP and would hide calls to them from the 8.2 leg.
+      - name: Drop dev tools that bring polyfills
+        run: composer remove --dev friendsofphp/php-cs-fixer --no-update --no-interaction
+
+      - name: Install
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: No polyfill hides a missing PHP function
+        shell: bash
+        run: |
+          found=()
+          for dir in vendor/symfony/polyfill-php8* vendor/symfony/polyfill-mbstring; do
+            if [ -d "$dir" ]; then
+              found+=("$dir")
+            fi
+          done
+          if [ "${#found[@]}" -gt 0 ]; then
+            echo "These polyfills would hide calls to functions PHP ${{ matrix.php }} does not have:"
+            printf '  %s\n' "${found[@]}"
+            exit 1
+          fi
+          echo "No PHP or mbstring polyfills installed."
+
+      - name: PHPUnit
+        run: composer test
+
+  quality:
+    name: PHPStan and coding style
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: curl, json
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: PHPStan
+        run: composer analyse
+
+      - name: PHP-CS-Fixer
+        run: composer cs-check
+
+  package:
+    name: The Packagist archive is installable and complete
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.2'
+          extensions: curl, json
+          coverage: none
+          tools: composer:v2
+
+      # Packagist serves the GitHub archive, which honours export-ignore. Test that artefact, not the checkout.
+      - name: Install the archive into a clean project
+        run: |
+          mkdir -p /tmp/dist /tmp/consumer
+          git archive HEAD | tar -x -C /tmp/dist
+          test ! -e /tmp/dist/tests && test ! -e /tmp/dist/.github
+          cd /tmp/consumer
+          composer init -n --name=ci/consumer
+          composer config repositories.sdk '{"type":"path","url":"/tmp/dist","options":{"symlink":false,"versions":{"huuray/huuray-php":"0.0.0"}}}'
+          composer require -n --no-progress --no-audit huuray/huuray-php:0.0.0
+          test -x vendor/bin/huuray || { echo "bin/huuray missing from the archive"; exit 1; }
+          vendor/bin/huuray --help > /dev/null
+          php -r 'require "vendor/autoload.php"; new Huuray\HuurayClient(apiToken: "t", apiSecret: "s");'
+
+  version:
+    name: The tag matches HuurayClient::VERSION
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Packagist names the release after the tag, while the client reports
+      # HuurayClient::VERSION in its User-Agent. They must agree.
+      - name: Compare the tag with HuurayClient::VERSION
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(sed -n "s/^[[:space:]]*public const VERSION = '\([^']*\)';.*/\1/p" src/HuurayClient.php)"
+          if [ -z "$version" ]; then
+            echo "Could not read HuurayClient::VERSION from src/HuurayClient.php."
+            exit 1
+          fi
+          if [ "$tag" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match HuurayClient::VERSION ('$version'). Set the constant to '$tag', or tag v$version."
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME matches HuurayClient::VERSION."
+
+  spec-is-v4:
+    name: Vendored spec is v4
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: json
+          coverage: none
+
+      # This client targets v4 only. A version change is a deliberate decision,
+      # never something that arrives with a spec sync.
+      - name: Assert info.version is v4
+        run: |
+          php -r '
+            $spec = json_decode(file_get_contents("openapi/huuray-v4.json"), false, 512, JSON_THROW_ON_ERROR);
+            $version = $spec->info->version ?? null;
+            if ($version !== "v4") {
+                fwrite(STDERR, "Expected info.version \"v4\", got " . var_export($version, true) . PHP_EOL);
+                exit(1);
+            }
+            echo "Vendored spec is v4." . PHP_EOL;
+          '

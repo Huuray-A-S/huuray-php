@@ -1,0 +1,18 @@
+parameters:
+    level: max
+    # Analyse as the composer.json floor, not as the PHP running PHPStan. Keep min equal to require.php
+    # in composer.json and max equal to the top of the CI matrix.
+    phpVersion:
+        min: 80200
+        max: 80599
+    paths:
+        - src
+        - tests
+        - examples
+        - scripts
+        - bin/huuray
+    # The SDK validates runtime input against its documented types — a float
+    # amount, a list that is not of Recipient objects — because callers without
+    # strict_types, or without static analysis, can pass anything. Treating
+    # PHPDoc types as certain would flag those guards as dead code.
+    treatPhpDocTypesAsCertain: false

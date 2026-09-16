@@ -1,0 +1,75 @@
+{
+    "name": "huuray/huuray-php",
+    "description": "Official PHP client for the Huuray API v4 — send digital gift cards and rewards to recipients in 170+ countries.",
+    "type": "library",
+    "keywords": [
+        "huuray",
+        "gift-card",
+        "giftcard",
+        "gift-cards",
+        "rewards",
+        "incentives",
+        "digital-rewards",
+        "vouchers",
+        "employee-rewards",
+        "api-client",
+        "sdk"
+    ],
+    "homepage": "https://github.com/Huuray-A-S/huuray-php",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Huuray A/S",
+            "email": "rg@huuray.com",
+            "homepage": "https://huuray.com"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/Huuray-A-S/huuray-php/issues",
+        "source": "https://github.com/Huuray-A-S/huuray-php",
+        "docs": "https://api.huuray.com/swagger/index.html",
+        "security": "https://github.com/Huuray-A-S/huuray-php/blob/main/.github/SECURITY.md"
+    },
+    "require": {
+        "php": ">=8.2",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.75",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Huuray\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Huuray\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/huuray"
+    ],
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --no-progress --memory-limit=1G",
+        "cs-check": "php-cs-fixer check --diff",
+        "cs-fix": "php-cs-fixer fix",
+        "spec-fetch": "@php scripts/fetch-spec.php"
+    },
+    "scripts-descriptions": {
+        "test": "Run the test suite, including the three spec-fidelity gates. No test touches the network.",
+        "analyse": "Run PHPStan at level max.",
+        "cs-check": "Check coding style against PER-CS without changing anything.",
+        "cs-fix": "Fix coding style against PER-CS.",
+        "spec-fetch": "Re-download the live v4 specification over openapi/huuray-v4.json."
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

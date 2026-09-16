@@ -1,0 +1,92 @@
+name: Spec drift
+
+# Re-downloads the live v4 specification and flags any change: it opens a pull
+# request when the SPEC_DRIFT_TOKEN secret is configured, and otherwise the run
+# fails (see "Open a pull request" below).
+#
+# This is the early-warning system for API changes: because the conformance gates
+# validate every request against the vendored spec, a diff here is the first sign
+# that a field, an endpoint, or a schema moved. Review every one of these changes —
+# do not merge on green alone.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: curl, json
+          coverage: none
+          tools: composer:v2
+
+      - name: Install
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Download the live spec
+        run: composer spec-fetch
+
+      - name: Detect a change
+        id: diff
+        run: |
+          if git diff --quiet -- openapi/huuray-v4.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Spec unchanged."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- openapi/huuray-v4.json
+          fi
+
+      - name: Run the gates against the new spec
+        if: steps.diff.outputs.changed == 'true'
+        id: verify
+        continue-on-error: true
+        run: |
+          composer analyse
+          composer test
+
+      - name: Open a pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          # SPEC_DRIFT_TOKEN should be a fine-grained PAT (contents + pull
+          # requests: write). Two reasons the default token is not enough:
+          # org repos block Actions-created PRs unless a setting is flipped,
+          # and PRs opened with GITHUB_TOKEN trigger no ci.yml run at all —
+          # the drift PR would show zero checks. Without the secret this falls
+          # back to GITHUB_TOKEN, which that org setting stops from opening the
+          # PR: a detected change then fails this step, and the run, instead.
+          token: ${{ secrets.SPEC_DRIFT_TOKEN || github.token }}
+          branch: spec-drift
+          title: 'The Huuray v4 specification changed'
+          commit-message: 'chore: sync openapi/huuray-v4.json with the live spec'
+          labels: spec-drift
+          body: |
+            The live v4 specification differs from the vendored copy.
+
+            **Suite against the new spec: ${{ steps.verify.outcome }}**
+
+            - `success` — the change is backwards compatible with the current client.
+              Still read the diff: a new endpoint will fail the coverage gate, and a
+              new field may be worth exposing.
+            - `failure` — the change breaks something. The conformance gates are doing
+              their job; work out what moved before merging.
+
+            Checklist:
+
+            - [ ] Read the specification diff
+            - [ ] New endpoints have SDK methods, or the coverage gate is failing for a reason we accept
+            - [ ] Removed or renamed fields are handled, and the change is noted in `CHANGELOG.md`
+            - [ ] The conformance validator still understands every schema shape it is given — it fails closed, so a new `allOf` wrapper means `validate()` needs extending
+            - [ ] `info.version` is still `v4` — this client targets v4 only

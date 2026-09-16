@@ -1,0 +1,58 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * Read-only command line interface for the Huuray API v4.
+ *
+ * The commands, and why there are no value-moving ones, are in
+ * src/Cli/Application.php. This file only wires them to the process: argv and
+ * the environment in, output and an exit code out.
+ */
+
+(static function (): void {
+    $candidates = [
+        // Set by Composer's bin proxy (Composer 2.2+) when installed as a dependency.
+        $GLOBALS['_composer_autoload_path'] ?? null,
+        // This repository, after `composer install`.
+        __DIR__ . '/../vendor/autoload.php',
+        // Installed as a dependency: vendor/huuray/huuray-php/bin/huuray.
+        __DIR__ . '/../../../autoload.php',
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (is_string($candidate) && is_file($candidate)) {
+            require $candidate;
+
+            return;
+        }
+    }
+
+    fwrite(STDERR, 'Could not find the Composer autoloader. Run "composer install" first.' . PHP_EOL);
+    exit(1);
+})();
+
+$application = new Huuray\Cli\Application(
+    out: static function (string $text): void {
+        fwrite(STDOUT, $text . PHP_EOL);
+    },
+    err: static function (string $text): void {
+        fwrite(STDERR, $text . PHP_EOL);
+    },
+);
+
+$serverArgv = $_SERVER['argv'] ?? [];
+$arguments = [];
+foreach (is_array($serverArgv) ? array_slice($serverArgv, 1) : [] as $argument) {
+    if (is_string($argument)) {
+        $arguments[] = $argument;
+    }
+}
+
+try {
+    exit($application->run($arguments, getenv()));
+} catch (Throwable $e) {
+    fwrite(STDERR, 'Error: ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}
