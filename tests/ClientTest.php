@@ -190,6 +190,7 @@ final class ClientTest extends TestCase
         yield 'user-info before a trailing slash' => ['https://planted-user:%s@sandbox.example.test/'];
         yield 'user-info with a non-http scheme' => ['ftp://planted-user:%s@sandbox.example.test'];
         yield 'user-info without a scheme' => ['planted-user:%s@sandbox.example.test'];
+        yield 'user-info without a scheme, read as one' => ['%s:x@sandbox.example.test'];
         yield 'user-info with a port parse_url refuses' => ['https://planted-user:%s@sandbox.example.test:port'];
         yield 'user-info with a line break' => ["https://planted-user:%s@sandbox.example.test\r\nX-Injected: yes"];
         yield 'user-info with a non-ASCII host' => ["https://planted-user:%s@sandbox.ex\u{E4}mple.test"];
@@ -227,7 +228,7 @@ final class ClientTest extends TestCase
         self::assertStringContainsString('args-are-kept', $seen);
         self::assertStringContainsString('SensitiveParameterValue', $seen);
 
-        self::assertStringNotContainsString('Pl4nted-Pa55w0rd', $seen);
+        self::assertStringNotContainsStringIgnoringCase('Pl4nted-Pa55w0rd', $seen);
         self::assertStringNotContainsString($baseUrl, $seen);
     }
 
