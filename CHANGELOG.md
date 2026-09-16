@@ -88,10 +88,11 @@ Python and .NET clients.
   `int`, because in a caller's file without `strict_types` PHP would silently
   coerce `50.00` to `50` (ordering 0.50), `quantity: 1.5` to `1`, and `true` to `1`
   before any guard could see it. PHP can tell `50.00` from `50`; JavaScript cannot.
-- **Recipient contact details, credentials, the base URL and request/response bodies
-  are marked `#[\SensitiveParameter]`**, so exception stack traces do not carry them
-  in clear text even with `zend.exception_ignore_args` Off (PHP's default). Dumping
-  the client with `var_dump()` / `print_r()` shows the API token and secret redacted.
+- **Recipient contact details, credentials, the base URL, query parameters and
+  request/response bodies are marked `#[\SensitiveParameter]`**, so exception stack
+  traces do not carry them in clear text even with `zend.exception_ignore_args` Off
+  (PHP's default). Dumping the client with `var_dump()` / `print_r()` shows the API
+  token and secret redacted.
 - **The request line and headers are checked before anything is sent.** An API
   token or user agent containing a line break or other control character, an empty
   or non-visible-ASCII custom nonce, a base URL with spaces, control characters or
