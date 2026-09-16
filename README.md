@@ -293,7 +293,7 @@ use Huuray\RetryOptions;
 new HuurayClient(
     apiToken: '...',                          // required
     apiSecret: '...',                         // required
-    baseUrl: 'https://api.huuray.com',        // default; must be an absolute http(s) URL
+    baseUrl: 'https://api.huuray.com',        // default; absolute http(s), no user-info, query or fragment
     hashEncoding: 'hex',                      // 'hex' | 'hex-upper' | 'base64' | 'base64url'
     timeoutMs: 30_000,                        // per request, 1 to 2147483647
     retry: new RetryOptions(maxRetries: 2, baseDelayMs: 250, maxDelayMs: 4000),

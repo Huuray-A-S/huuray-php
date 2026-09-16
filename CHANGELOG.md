@@ -88,10 +88,10 @@ Python and .NET clients.
   `int`, because in a caller's file without `strict_types` PHP would silently
   coerce `50.00` to `50` (ordering 0.50), `quantity: 1.5` to `1`, and `true` to `1`
   before any guard could see it. PHP can tell `50.00` from `50`; JavaScript cannot.
-- **Recipient contact details, credentials and request/response bodies are marked
-  `#[\SensitiveParameter]`**, so exception stack traces do not carry them in clear
-  text even with `zend.exception_ignore_args` Off (PHP's default). Dumping the client
-  with `var_dump()` / `print_r()` shows the API token and secret redacted.
+- **Recipient contact details, credentials, the base URL and request/response bodies
+  are marked `#[\SensitiveParameter]`**, so exception stack traces do not carry them
+  in clear text even with `zend.exception_ignore_args` Off (PHP's default). Dumping
+  the client with `var_dump()` / `print_r()` shows the API token and secret redacted.
 - **The request line and headers are checked before anything is sent.** An API
   token or user agent containing a line break or other control character, an empty
   or non-visible-ASCII custom nonce, a base URL with spaces, control characters or
@@ -100,6 +100,13 @@ Python and .NET clients.
   rejected. None of them can inject a header, send the credentials to another host,
   or truncate the header block. A token read from a file often ends in a newline:
   trim it.
+- **A base URL with user-info (`user@` or `user:password@`), a query (`?`) or a
+  fragment (`#`) is rejected** with `ConfigurationException` when the client is
+  built. The default transport would send user-info to the host as Basic
+  credentials, and after a `?` or `#` every request path would go to the wrong
+  place. A trailing slash is still accepted. No base URL error message quotes the
+  value, which could hold a password: each names the problem and shows the default
+  base URL as the expected form.
 - **`206 Partial Content`** on cancel and resend is surfaced as `partial: true`
   rather than being treated as plain success.
 - **Voucher codes are never logged** by this library at any level. Exceptions keep
