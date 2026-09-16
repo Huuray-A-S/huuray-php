@@ -227,6 +227,16 @@ final class ApplicationTest extends TestCase
         self::assertStringEndsWith(' huuray-cli', $run['calls'][0]->headers['User-Agent']);
     }
 
+    public function testRejectsABaseUrlWithUserInfoWithoutPrintingThePassword(): void
+    {
+        $run = $this->runCli(['balance'], new MockResponse(json: ['Balances' => []]), env: self::ENV + ['HUURAY_BASE_URL' => 'https://planted-user:Pl4nted-Pa55w0rd@sandbox.example.test']);
+
+        self::assertSame(1, $run['code']);
+        self::assertCount(0, $run['calls']);
+        self::assertStringContainsString('user-info', $run['stderr']);
+        self::assertStringNotContainsString('Pl4nted-Pa55w0rd', $run['stderr'] . $run['stdout']);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static function searchResponse(): MockResponse

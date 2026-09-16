@@ -71,7 +71,8 @@ class HuurayClient
      * @param string                   $apiToken     Your API token. Sent as `X-API-TOKEN`, so it must not contain a
      *                                               control character — trim a value read from a file.
      * @param string                   $apiSecret    Your API secret. Used to sign each request; never sent and never logged.
-     * @param string                   $baseUrl      Override the API host. Must be an absolute http(s) URL.
+     * @param string                   $baseUrl      Override the API host. Must be an absolute http(s) URL with no
+     *                                               user-info, query or fragment. A trailing slash is fine.
      * @param HashEncoding|string      $hashEncoding Encoding of the `X-API-HASH` digest: 'hex' (default),
      *                                               'hex-upper', 'base64' or 'base64url'. If you see a 401
      *                                               with credentials you know are good, try another value.
@@ -98,6 +99,7 @@ class HuurayClient
         string $apiToken,
         #[\SensitiveParameter]
         string $apiSecret,
+        #[\SensitiveParameter]
         string $baseUrl = self::DEFAULT_BASE_URL,
         HashEncoding|string $hashEncoding = Auth::DEFAULT_HASH_ENCODING,
         int $timeoutMs = self::DEFAULT_TIMEOUT_MS,
@@ -478,11 +480,15 @@ class HuurayClient
      * "api.huuray.com" (no scheme) would otherwise only surface later as a
      * confusing transport error — and requiring http(s) keeps credentials from
      * being aimed at a file:// or ftp:// target by a configuration typo.
+     *
+     * No message quotes the value, or any part of it: it could hold a password.
      */
-    private static function validateBaseUrl(string $baseUrl): string
-    {
+    private static function validateBaseUrl(
+        #[\SensitiveParameter]
+        string $baseUrl,
+    ): string {
         // A line break would reach the request line, and a NUL makes cURL throw with
-        // the signed headers in its trace arguments. The value is not quoted.
+        // the signed headers in its trace arguments.
         if (preg_match('/[^\x21-\x7E]/', $baseUrl) === 1) {
             throw new ConfigurationException(sprintf(
                 'baseUrl contains a space, control character or non-ASCII byte. Expected something like %s.',
@@ -496,16 +502,35 @@ class HuurayClient
         $scheme = is_array($parts) && isset($parts['scheme']) ? strtolower($parts['scheme']) : null;
         if ($scheme !== null && $scheme !== 'http' && $scheme !== 'https') {
             throw new ConfigurationException(sprintf(
-                'baseUrl %s must use http or https, not %s.',
-                var_export($baseUrl, true),
-                var_export($scheme . ':', true),
+                'baseUrl must use http or https. Expected something like %s.',
+                var_export(self::DEFAULT_BASE_URL, true),
             ));
         }
 
         if ($scheme === null || !is_array($parts) || !isset($parts['host']) || $parts['host'] === '') {
             throw new ConfigurationException(sprintf(
-                'baseUrl %s is not an absolute http(s) URL. Expected something like %s.',
-                var_export($baseUrl, true),
+                'baseUrl is not an absolute http(s) URL. Expected something like %s.',
+                var_export(self::DEFAULT_BASE_URL, true),
+            ));
+        }
+
+        // cURL sends user-info to the host as Basic credentials, and an error
+        // message built from the URL would print the password.
+        if (isset($parts['user']) || isset($parts['pass'])) {
+            throw new ConfigurationException(sprintf(
+                'baseUrl must not contain user-info ("user@" or "user:password@"). The client authenticates with '
+                . 'apiToken and apiSecret. Expected something like %s.',
+                var_export(self::DEFAULT_BASE_URL, true),
+            ));
+        }
+
+        // Every request path is appended to the base URL, so after a "?" or "#" it
+        // would land in the query or fragment and every request would go to the wrong path.
+        if (isset($parts['query']) || isset($parts['fragment'])) {
+            throw new ConfigurationException(sprintf(
+                'baseUrl must not contain a %s: request paths are appended to it, so every request would go to '
+                . 'the wrong path. Expected something like %s.',
+                isset($parts['query']) ? 'query ("?")' : 'fragment ("#")',
                 var_export(self::DEFAULT_BASE_URL, true),
             ));
         }

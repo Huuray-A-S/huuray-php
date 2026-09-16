@@ -147,14 +147,88 @@ final class ClientTest extends TestCase
         yield 'CRLF injecting a header' => ["https://api.huuray.com/v4\r\nX-Injected: yes"];
         yield 'space' => ['https://api.huuray.com /v4'];
         yield 'non-ASCII' => ["https://api.huur\u{E4}y.com"];
+        // User-info would go to the host as credentials; "?" and "#" swallow every request path.
+        yield 'user-info' => ['https://user@sandbox.example.test'];
+        yield 'user-info with a password' => ['https://user:password@sandbox.example.test'];
+        yield 'user-info with a password and a trailing slash' => ['https://user:password@sandbox.example.test/'];
+        yield 'password without a user' => ['https://:password@sandbox.example.test'];
+        yield 'empty user-info' => ['https://@sandbox.example.test'];
+        yield 'user-info moving the host' => ['https://sandbox.example.test@attacker.example'];
+        yield 'query' => ['https://sandbox.example.test/v4?x=1'];
+        yield 'empty query' => ['https://sandbox.example.test?'];
+        yield 'query before a trailing slash' => ['https://sandbox.example.test/?/'];
+        yield 'fragment' => ['https://sandbox.example.test/v4#x'];
+        yield 'empty fragment' => ['https://sandbox.example.test#'];
     }
 
     #[DataProvider('badBaseUrls')]
     public function testRejectsABaseUrlThatIsNotAbsoluteHttp(string $baseUrl): void
     {
-        $this->expectException(ConfigurationException::class);
+        $transport = new FakeTransport();
 
-        new HuurayClient(apiToken: 't', apiSecret: 's', baseUrl: $baseUrl, transport: new FakeTransport());
+        try {
+            new HuurayClient(apiToken: 't', apiSecret: 's', baseUrl: $baseUrl, transport: $transport);
+            self::fail('Expected the baseUrl to be rejected.');
+        } catch (ConfigurationException $e) {
+            // Names the problem and shows the expected form, never the value itself.
+            self::assertStringContainsString('baseUrl', $e->getMessage());
+            self::assertStringContainsString(HuurayClient::DEFAULT_BASE_URL, $e->getMessage());
+            if ($baseUrl !== '' && !str_contains(HuurayClient::DEFAULT_BASE_URL, $baseUrl)) {
+                self::assertStringNotContainsString($baseUrl, $e->getMessage());
+            }
+            self::assertDoesNotMatchRegularExpression('/[\x00-\x1F\x7F]/', $e->getMessage());
+        }
+
+        self::assertCount(0, $transport->calls);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function badBaseUrlsHidingAPassword(): iterable
+    {
+        // "%s" is replaced in the test body, so no test frame's own arguments hold the password.
+        yield 'user-info' => ['https://planted-user:%s@sandbox.example.test'];
+        yield 'user-info before a trailing slash' => ['https://planted-user:%s@sandbox.example.test/'];
+        yield 'user-info with a non-http scheme' => ['ftp://planted-user:%s@sandbox.example.test'];
+        yield 'user-info without a scheme' => ['planted-user:%s@sandbox.example.test'];
+        yield 'user-info with a port parse_url refuses' => ['https://planted-user:%s@sandbox.example.test:port'];
+        yield 'user-info with a line break' => ["https://planted-user:%s@sandbox.example.test\r\nX-Injected: yes"];
+        yield 'user-info with a non-ASCII host' => ["https://planted-user:%s@sandbox.ex\u{E4}mple.test"];
+        yield 'query' => ['https://sandbox.example.test/?password=%s'];
+        yield 'fragment' => ['https://sandbox.example.test/#%s'];
+    }
+
+    #[DataProvider('badBaseUrlsHidingAPassword')]
+    public function testNoBaseUrlErrorCarriesAPasswordInItsMessageTraceOrCauseChain(string $template): void
+    {
+        // Off is PHP's built-in default: exception traces then keep every argument.
+        // Forced here so the trace assertions can never pass vacuously.
+        $ignoreArgs = ini_set('zend.exception_ignore_args', '0');
+        $baseUrl = sprintf($template, 'Pl4nted-Pa55w0rd');
+        $transport = new FakeTransport();
+        $caught = null;
+
+        try {
+            new HuurayClient(apiToken: 't', apiSecret: 's', baseUrl: $baseUrl, transport: $transport, userAgent: 'args-are-kept');
+        } catch (ConfigurationException $e) {
+            $caught = $e;
+        } finally {
+            ini_set('zend.exception_ignore_args', $ignoreArgs === false ? '0' : $ignoreArgs);
+        }
+
+        self::assertNotNull($caught, 'Expected the baseUrl to be rejected.');
+        self::assertCount(0, $transport->calls);
+
+        $seen = '';
+        for ($exception = $caught; $exception !== null; $exception = $exception->getPrevious()) {
+            $seen .= $exception->getMessage() . (string) $exception . print_r($exception, true) . print_r($exception->getTrace(), true);
+        }
+
+        // Arguments were recorded, and the sensitive ones were replaced.
+        self::assertStringContainsString('args-are-kept', $seen);
+        self::assertStringContainsString('SensitiveParameterValue', $seen);
+
+        self::assertStringNotContainsString('Pl4nted-Pa55w0rd', $seen);
+        self::assertStringNotContainsString($baseUrl, $seen);
     }
 
     /** @return iterable<string, array{string}> */
@@ -179,6 +253,15 @@ final class ClientTest extends TestCase
 
         self::assertSame('https://example.test', $transport->calls[0]->origin);
         self::assertSame('/v4/Balance', $transport->calls[0]->path);
+    }
+
+    public function testAcceptsABaseUrlWithAPathAndATrailingSlash(): void
+    {
+        [$client, $transport] = TestClient::make(baseUrl: 'http://127.0.0.1:8080/proxy/');
+        $client->balances->list();
+
+        self::assertSame('http://127.0.0.1:8080', $transport->calls[0]->origin);
+        self::assertSame('/proxy/v4/Balance', $transport->calls[0]->path);
     }
 
     public function testRejectsAnUnknownHashEncodingRatherThanGuessing(): void
