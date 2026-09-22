@@ -141,7 +141,7 @@ $huuray->orders->create(
 
 The five fields are optional, on `orders->create()`, `orders->createSync()` and `sendReward()`, and sent exactly as given. Each is accepted only when the matching option is enabled on your B2B account; otherwise the API rejects the order with a 422, thrown as `ValidationException`. Per the API reference, a file must be a PDF or an image of at most 10 MB. The client checks none of this — the API decides.
 
-**Uploads are never retried.** Each upload waits as a pending upload until an order uses its token, and the API allows at most five per account. A timeout or dropped connection throws the ordinary `TimeoutException` or `ConnectionException`: the upload may still have been stored, holding one of those slots, and you never got its token. For a large file, raise `timeoutMs` rather than retrying.
+**Uploads are never retried.** Each upload waits as a pending upload until an order uses its token or the upload is cleaned up, and the API allows at most five per account. A timeout or dropped connection throws the ordinary `TimeoutException` or `ConnectionException`: the upload may still have been stored, holding one of those slots, and you never got its token. For a large file, raise `timeoutMs` rather than retrying.
 
 ## Seven things worth knowing
 
