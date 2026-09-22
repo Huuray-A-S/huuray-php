@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Huuray\Tests\Support;
 
 /**
- * Reads the vendored OpenAPI specification and validates request bodies against it.
+ * Reads the vendored OpenAPI specification and validates request bodies against it:
+ * a JSON body against its schema, a multipart/form-data body part by part.
  *
  * FAILS CLOSED: a schema shape this validator does not understand is an error,
  * never a silent pass. The spec-drift job re-downloads the live specification
@@ -78,12 +79,27 @@ final class SpecValidator
     /** @return array<string, mixed>|null The JSON request body schema, or null when the operation declares none. */
     public function requestSchema(string $method, string $path): ?array
     {
-        $requestBody = self::map($this->operation($method, $path)['requestBody'] ?? null);
-        $content = self::map($requestBody['content'] ?? null);
-        $json = self::map($content['application/json'] ?? null);
+        $json = $this->requestContent($method, $path)['application/json'] ?? [];
         $schema = $json['schema'] ?? null;
 
         return is_array($schema) ? self::map($schema) : null;
+    }
+
+    /**
+     * The request body an operation declares, as media type => media type object.
+     * Empty when the operation declares no request body.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function requestContent(string $method, string $path): array
+    {
+        $requestBody = self::map($this->operation($method, $path)['requestBody'] ?? null);
+        $content = [];
+        foreach (self::map($requestBody['content'] ?? null) as $mediaType => $object) {
+            $content[strtolower($mediaType)] = self::map($object);
+        }
+
+        return $content;
     }
 
     /** @return array<string, mixed> A named component schema. */
@@ -194,6 +210,164 @@ final class SpecValidator
                     . ' — this validator cannot check it; extend validate() before trusting this run',
                 ];
         }
+    }
+
+    /**
+     * What is wrong with one request's body, measured against the request body its
+     * operation declares; an empty list means it conforms.
+     *
+     * Dispatches on the Content-Type the SDK sent: a JSON body is validated against
+     * its schema with {@see self::validate()}, a multipart body part by part with
+     * {@see self::validateMultipart()}. A body is never parsed as anything its
+     * Content-Type does not say it is, and any other media type FAILS CLOSED.
+     *
+     * @param array<string, array<string, mixed>> $content The operation's request body, from requestContent().
+     *
+     * @return list<string>
+     */
+    public function validateRequestBody(array $content, CapturedRequest $call): array
+    {
+        $at = $call->method . ' ' . $call->path;
+        if ($content === []) {
+            // The spec declares no body for this operation, so the SDK must send none.
+            return $call->bodyOmitted ? [] : [$at . ': spec declares no requestBody, but the SDK sent one'];
+        }
+        if ($call->bodyOmitted) {
+            return [$at . ': spec declares a requestBody, but the SDK sent none'];
+        }
+
+        $mediaType = $call->mediaType();
+        if ($mediaType === null || !array_key_exists($mediaType, $content)) {
+            return [sprintf(
+                '%s: sent Content-Type %s, but the spec declares only %s',
+                $at,
+                var_export($mediaType, true),
+                implode(', ', array_keys($content)),
+            )];
+        }
+
+        if ($mediaType === 'application/json') {
+            $schema = $content[$mediaType]['schema'] ?? null;
+
+            return is_array($schema)
+                ? $this->validate(self::map($schema), $call->bodyAsObjects(), $at)
+                : [$at . ': application/json declares no schema — extend validateRequestBody() before trusting this run'];
+        }
+        if ($mediaType === 'multipart/form-data') {
+            return $call->parts === null
+                ? [$at . ': the multipart body could not be parsed — ' . ($call->multipartError ?? 'no parts were recorded')]
+                : $this->validateMultipart($content[$mediaType], $call->parts, $at);
+        }
+
+        return [
+            $at . ': request media type ' . $mediaType . ' is not understood by this validator — extend '
+            . 'validateRequestBody() before trusting this run',
+        ];
+    }
+
+    /**
+     * Validates the parts of a multipart/form-data body against the media type
+     * object the spec declares for it. Returns violations; empty means it conforms.
+     *
+     * It checks part names, not bytes: every part must be a declared property (the
+     * invention detector), none may repeat, every `required` property must be sent,
+     * and a `format: binary` property must go as a file part — with a file name and
+     * a Content-Type, as raw bytes. It FAILS CLOSED like validate(): a schema that is
+     * not a plain object of binary properties, an encoding that constrains a part,
+     * or any other key on the media type object is an error, never a silent pass.
+     *
+     * @param array<string, mixed> $mediaType The spec's `multipart/form-data` media type object.
+     * @param list<MultipartPart>  $parts
+     *
+     * @return list<string>
+     */
+    public function validateMultipart(array $mediaType, array $parts, string $at = '$'): array
+    {
+        $unknown = array_values(array_diff(array_keys($mediaType), ['schema', 'encoding', 'example', 'examples']));
+        if ($unknown !== []) {
+            return [
+                $at . ': multipart media type declares ' . implode(', ', $unknown) . ', which this validator does not '
+                . 'handle — extend validateMultipart() before trusting this run',
+            ];
+        }
+        $schema = $mediaType['schema'] ?? null;
+        if (!is_array($schema)) {
+            return [$at . ': multipart media type has no schema — extend validateMultipart() before trusting this run'];
+        }
+
+        $resolved = $this->deref(self::map($schema));
+        $properties = self::map($resolved['properties'] ?? null);
+        if (self::isComposed($resolved) || ($resolved['type'] ?? null) !== 'object' || $properties === []) {
+            return [
+                $at . ': multipart schema is not a plain object with properties — this validator cannot check its '
+                . 'parts; extend validateMultipart() before trusting this run',
+            ];
+        }
+
+        $errors = [];
+        foreach ($properties as $name => $property) {
+            $property = $this->deref(self::map($property));
+            if (self::isComposed($property) || ($property['type'] ?? null) !== 'string' || ($property['format'] ?? null) !== 'binary') {
+                $errors[] = $at . '.' . $name . ': only binary file parts (type string, format binary) are understood — '
+                    . 'extend validateMultipart() before trusting this run';
+            }
+        }
+        // For a multipart body, style, explode and allowReserved are ignored (OpenAPI
+        // 3.0, Encoding Object). contentType and headers would constrain a part, and
+        // this validator does not check them.
+        foreach (self::map($mediaType['encoding'] ?? null) as $name => $encoding) {
+            $unknown = array_values(array_diff(array_keys(self::map($encoding)), ['style', 'explode', 'allowReserved']));
+            if (!array_key_exists($name, $properties) || $unknown !== []) {
+                $errors[] = $at . '.' . $name . ': encoding ' . ($unknown === [] ? 'names no declared property' : 'declares ' . implode(', ', $unknown))
+                    . ', which this validator does not handle — extend validateMultipart() before trusting this run';
+            }
+        }
+        if ($errors !== []) {
+            return $errors;
+        }
+
+        $sent = [];
+        foreach ($parts as $index => $part) {
+            if ($part->name === null) {
+                $errors[] = $at . '[part ' . $index . ']: has no name';
+                continue;
+            }
+            $label = $at . '.' . $part->name;
+            if (in_array($part->name, $sent, true)) {
+                $errors[] = $label . ': sent more than once';
+                continue;
+            }
+            $sent[] = $part->name;
+
+            // The invention detector: a part the spec does not define.
+            if (!array_key_exists($part->name, $properties)) {
+                $errors[] = $label . ': not defined in the spec — the SDK must not send undocumented fields';
+                continue;
+            }
+            // Every declared property is binary (checked above), so this is a file part.
+            if ($part->filename === null || $part->filename === '') {
+                $errors[] = $label . ': a binary property must be sent as a file part, with a filename';
+            }
+            if ($part->contentType() === null) {
+                $errors[] = $label . ': a file part must carry a Content-Type';
+            }
+            if (array_key_exists('content-transfer-encoding', $part->headers)) {
+                $errors[] = $label . ': a file part must be sent as raw bytes, with no Content-Transfer-Encoding';
+            }
+        }
+        foreach (self::sequence($resolved['required'] ?? null) as $required) {
+            if (is_string($required) && !in_array($required, $sent, true)) {
+                $errors[] = $at . '.' . $required . ': required by the spec but not sent';
+            }
+        }
+
+        return $errors;
+    }
+
+    /** @param array<string, mixed> $schema */
+    private static function isComposed(array $schema): bool
+    {
+        return array_key_exists('allOf', $schema) || array_key_exists('oneOf', $schema) || array_key_exists('anyOf', $schema);
     }
 
     /**

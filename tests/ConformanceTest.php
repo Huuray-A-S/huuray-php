@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Huuray\Tests;
 
+use Huuray\Http\HttpRequest;
 use Huuray\HuurayClient;
 use Huuray\Recipient;
 use Huuray\Resources\AbstractResource;
@@ -11,6 +12,7 @@ use Huuray\Tests\Support\CapturedRequest;
 use Huuray\Tests\Support\MockResponse;
 use Huuray\Tests\Support\SpecValidator;
 use Huuray\Tests\Support\TestClient;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -84,6 +86,9 @@ final class ConformanceTest extends TestCase
         'send' => ['method', 'path', 'body', 'query', 'retryable'],
     ];
 
+    /** Delimits the hand-built multipart bodies the gate's self-tests feed it. */
+    private const BOUNDARY = 'self-test-boundary-7f3a9c';
+
     /** @var list<CapturedRequest>|null */
     private static ?array $calls = null;
 
@@ -136,9 +141,9 @@ final class ConformanceTest extends TestCase
         self::assertSame([], $missing);
     }
 
-    public function testCoversExactlyTheNineV4OperationsNoMoreNoFewer(): void
+    public function testCoversExactlyTheTenV4OperationsNoMoreNoFewer(): void
     {
-        self::assertCount(9, self::spec()->operations());
+        self::assertCount(10, self::spec()->operations());
     }
 
     public function testTheSpecIsStillV4ThisClientTargetsV4Only(): void
@@ -158,17 +163,7 @@ final class ConformanceTest extends TestCase
         $failures = [];
 
         foreach (self::calls() as $call) {
-            $schema = self::spec()->requestSchema($call->method, $call->path);
-
-            if ($schema === null) {
-                // The spec declares no body for this operation, so the SDK must send none.
-                if (!$call->bodyOmitted) {
-                    $failures[] = sprintf('%s %s: spec declares no requestBody, but the SDK sent one', $call->method, $call->path);
-                }
-                continue;
-            }
-
-            array_push($failures, ...self::spec()->validate($schema, $call->bodyAsObjects(), $call->method . ' ' . $call->path));
+            array_push($failures, ...self::spec()->validateRequestBody(self::spec()->requestContent($call->method, $call->path), $call));
         }
 
         self::assertSame([], $failures);
@@ -461,6 +456,161 @@ final class ConformanceTest extends TestCase
         self::assertMatchesRegularExpression('/unknown type/', implode("\n", $errors));
     }
 
+    // ------------------------------------------ the multipart gate itself works
+
+    public function testTheMultipartGateAcceptsAWellFormedUpload(): void
+    {
+        self::assertSame([], self::uploadViolations(self::multipart([self::filePart()])));
+    }
+
+    public function testFlagsAnUndocumentedMultipartPart(): void
+    {
+        $errors = self::uploadViolations(self::multipart([
+            self::filePart(),
+            self::filePart(disposition: 'form-data; name="Invented"; filename="x.pdf"'),
+        ]));
+
+        self::assertCount(1, $errors);
+        self::assertMatchesRegularExpression('/^POST \/v4\/Upload\.Invented: not defined in the spec/', implode("\n", $errors));
+    }
+
+    public function testFlagsAMultipartPartSentTwice(): void
+    {
+        $errors = self::uploadViolations(self::multipart([self::filePart(), self::filePart()]));
+
+        self::assertMatchesRegularExpression('/\.File: sent more than once/', implode("\n", $errors));
+    }
+
+    public function testFlagsABinaryPartSentWithoutAFilename(): void
+    {
+        $errors = self::uploadViolations(self::multipart([self::filePart(disposition: 'form-data; name="File"')]));
+
+        self::assertMatchesRegularExpression('/\.File: a binary property must be sent as a file part, with a filename/', implode("\n", $errors));
+    }
+
+    public function testFlagsAFilePartWithoutAContentType(): void
+    {
+        $errors = self::uploadViolations(self::multipart([self::filePart(contentType: null)]));
+
+        self::assertMatchesRegularExpression('/\.File: a file part must carry a Content-Type/', implode("\n", $errors));
+    }
+
+    public function testFlagsAFilePartThatIsNotRawBytes(): void
+    {
+        $errors = self::uploadViolations(self::multipart([
+            self::filePart(extraHeaders: ['Content-Transfer-Encoding: base64'], content: base64_encode('%PDF')),
+        ]));
+
+        self::assertMatchesRegularExpression('/\.File: a file part must be sent as raw bytes/', implode("\n", $errors));
+    }
+
+    public function testFlagsAMissingRequiredPart(): void
+    {
+        // The predicted Upload schema declares no `required`, so the check is shown on one that does.
+        $errors = self::spec()->validateMultipart(
+            ['schema' => ['type' => 'object', 'properties' => ['File' => ['type' => 'string', 'format' => 'binary']], 'required' => ['File']]],
+            [],
+            'POST /v4/Upload',
+        );
+
+        self::assertSame(['POST /v4/Upload.File: required by the spec but not sent'], $errors);
+    }
+
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function multipartShapesTheGateDoesNotUnderstand(): iterable
+    {
+        $file = ['type' => 'string', 'format' => 'binary'];
+
+        yield 'no schema' => [['encoding' => []]];
+        yield 'a composed schema' => [['schema' => ['allOf' => [['type' => 'object', 'properties' => ['File' => $file]]]]]];
+        yield 'a schema that is not an object' => [['schema' => $file]];
+        yield 'an object with no properties' => [['schema' => ['type' => 'object']]];
+        yield 'a text property' => [['schema' => ['type' => 'object', 'properties' => ['File' => $file, 'Note' => ['type' => 'string']]]]];
+        yield 'a composed property' => [['schema' => ['type' => 'object', 'properties' => ['File' => ['oneOf' => [$file]]]]]];
+        yield 'an encoding that constrains the part' => [['schema' => ['type' => 'object', 'properties' => ['File' => $file]], 'encoding' => ['File' => ['contentType' => 'application/pdf']]]];
+        yield 'an encoding for an undeclared property' => [['schema' => ['type' => 'object', 'properties' => ['File' => $file]], 'encoding' => ['Other' => ['style' => 'form']]]];
+        yield 'an unknown key on the media type' => [['schema' => ['type' => 'object', 'properties' => ['File' => $file]], 'x-parts' => 1]];
+    }
+
+    /** @param array<string, mixed> $mediaType */
+    #[DataProvider('multipartShapesTheGateDoesNotUnderstand')]
+    public function testFailsClosedOnAMultipartShapeItDoesNotUnderstand(array $mediaType): void
+    {
+        $call = self::uploadCall(self::multipart([self::filePart()]));
+        self::assertNotNull($call->parts);
+
+        $errors = self::spec()->validateMultipart($mediaType, $call->parts, 'POST /v4/Upload');
+
+        self::assertNotSame([], $errors);
+        self::assertMatchesRegularExpression('/extend validateMultipart\(\) before trusting this run/', implode("\n", $errors));
+    }
+
+    public function testFailsClosedOnARequestMediaTypeItDoesNotUnderstand(): void
+    {
+        $call = self::uploadCall('File=x', 'application/x-www-form-urlencoded');
+
+        $errors = self::spec()->validateRequestBody(['application/x-www-form-urlencoded' => ['schema' => ['type' => 'object']]], $call);
+
+        self::assertMatchesRegularExpression('/media type application\/x-www-form-urlencoded is not understood/', implode("\n", $errors));
+    }
+
+    public function testFlagsAJsonBodySentToTheMultipartUpload(): void
+    {
+        $errors = self::uploadViolations('{"File":"x"}', 'application/json');
+
+        self::assertSame(["POST /v4/Upload: sent Content-Type 'application/json', but the spec declares only multipart/form-data"], $errors);
+    }
+
+    public function testFlagsAMultipartBodySentToAJsonOperation(): void
+    {
+        $call = CapturedRequest::from(new HttpRequest(
+            'POST',
+            'https://api.huuray.com/v4/Stock',
+            ['Content-Type' => 'multipart/form-data; boundary=' . self::BOUNDARY],
+            self::multipart([self::filePart()]),
+            30_000,
+        ));
+
+        $errors = self::spec()->validateRequestBody(self::spec()->requestContent('POST', '/v4/Stock'), $call);
+
+        self::assertMatchesRegularExpression('/sent Content-Type \'multipart\/form-data\', but the spec declares only application\/json/', implode("\n", $errors));
+    }
+
+    public function testFlagsAnUploadThatSendsNoBody(): void
+    {
+        $call = CapturedRequest::from(new HttpRequest('POST', 'https://api.huuray.com/v4/Upload', [], null, 30_000));
+
+        $errors = self::spec()->validateRequestBody(self::spec()->requestContent('POST', '/v4/Upload'), $call);
+
+        self::assertSame(['POST /v4/Upload: spec declares a requestBody, but the SDK sent none'], $errors);
+    }
+
+    public function testAnUnparseableMultipartBodyFailsTheGateInsteadOfCrashingTheHarness(): void
+    {
+        $call = self::uploadCall('this is not a multipart body');
+
+        self::assertNull($call->parts);
+        self::assertNotNull($call->multipartError);
+        self::assertMatchesRegularExpression(
+            '/^POST \/v4\/Upload: the multipart body could not be parsed — /',
+            implode("\n", self::spec()->validateRequestBody(self::spec()->requestContent('POST', '/v4/Upload'), $call)),
+        );
+    }
+
+    public function testTheHarnessNeverJsonParsesABodyThatIsNotLabelledJson(): void
+    {
+        // A part holding JSON text, and a body that is not JSON at all: neither is decoded, neither throws.
+        $multipart = self::uploadCall(self::multipart([self::filePart(content: '{"Code":"x"}')]));
+        $text = self::uploadCall("\xFF\xFE not json", 'application/octet-stream');
+
+        foreach ([$multipart, $text] as $call) {
+            self::assertNull($call->body);
+            self::assertNull($call->bodyAsObjects());
+        }
+        self::assertCount(1, $multipart->parts ?? []);
+        self::assertSame('{"Code":"x"}', ($multipart->parts ?? [])[0]->content);
+    }
+
     // ------------------------------------------------------------------- harness
 
     /**
@@ -591,6 +741,53 @@ final class ConformanceTest extends TestCase
         }
 
         return false;
+    }
+
+    /** A POST /v4/Upload request carrying the given body, as the harness would record it. */
+    private static function uploadCall(string $body, string $contentType = 'multipart/form-data; boundary=' . self::BOUNDARY): CapturedRequest
+    {
+        return CapturedRequest::from(new HttpRequest('POST', 'https://api.huuray.com/v4/Upload', ['Content-Type' => $contentType], $body, 30_000));
+    }
+
+    /**
+     * The request-conformance gate's verdict on a POST /v4/Upload carrying the given body.
+     *
+     * @return list<string>
+     */
+    private static function uploadViolations(string $body, string $contentType = 'multipart/form-data; boundary=' . self::BOUNDARY): array
+    {
+        return self::spec()->validateRequestBody(self::spec()->requestContent('POST', '/v4/Upload'), self::uploadCall($body, $contentType));
+    }
+
+    /**
+     * A multipart/form-data body with the given parts, delimited by {@see self::BOUNDARY}.
+     *
+     * @param list<string> $parts Each part's headers, blank line and content.
+     */
+    private static function multipart(array $parts): string
+    {
+        $delimiter = '--' . self::BOUNDARY;
+
+        return $delimiter . "\r\n" . implode("\r\n" . $delimiter . "\r\n", $parts) . "\r\n" . $delimiter . "--\r\n";
+    }
+
+    /**
+     * One part: a well-formed file part by default, with the given piece changed.
+     *
+     * @param list<string> $extraHeaders
+     */
+    private static function filePart(
+        string $disposition = 'form-data; name="File"; filename="po-4711.pdf"',
+        ?string $contentType = 'application/pdf',
+        array $extraHeaders = [],
+        string $content = "%PDF-1.7\r\n%\xE2\xE3\xCF\xD3\r\n",
+    ): string {
+        $headers = ['Content-Disposition: ' . $disposition];
+        if ($contentType !== null) {
+            $headers[] = 'Content-Type: ' . $contentType;
+        }
+
+        return implode("\r\n", [...$headers, ...$extraHeaders]) . "\r\n\r\n" . $content;
     }
 
     /**
