@@ -65,7 +65,7 @@ The validator deliberately **fails closed**. A schema shape it does not understa
 
 Some of this library moves real money. Changes in these areas get closer review:
 
-- **Never add automatic retries to `/v4/Order`, `/v4/Resend` or `/v4/Cancel`.** There is no idempotency key. A retried order orders twice; a retried resend re-delivers a live gift card. Retries are opt-in per operation and must never be inferred from the HTTP method — four read-only v4 endpoints are POSTs.
+- **Never add automatic retries to `/v4/Order`, `/v4/Resend`, `/v4/Cancel` or `/v4/Upload`.** There is no idempotency key. A retried order orders twice; a retried resend re-delivers a live gift card; a retried upload stores the file again, in another of the account's pending upload slots. Retries are opt-in per operation and must never be inferred from the HTTP method — four read-only v4 endpoints are POSTs.
 - **Never let a transport failure escape the error taxonomy.** The body is read inside the same error handling as the request, or a mid-body drop bypasses `IndeterminateOrderException` entirely.
 - **Never send a request without a timeout.** The timeout is what makes an order that hangs reach `IndeterminateOrderException`; the default transport enforces it, and a custom transport must too.
 - **Never coerce an unreadable 2xx into an empty result.** A garbled `/v4/Search` response reading as "no order found" would make the documented reconciliation flow re-order.

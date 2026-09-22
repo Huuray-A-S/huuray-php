@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `uploads->create(file, fileName, contentType)` for `POST /v4/Upload`: uploads one
+  purchase order file as multipart/form-data, in one part named `File`, and returns
+  an `UploadResult` (`token`, `fileName`, `contentType`, `size`). `file` is the bytes
+  as a string, or a readable stream; a null `contentType` is sent as
+  `application/octet-stream`. **Never retried**: a timeout or dropped connection
+  throws the ordinary `TimeoutException` or `ConnectionException`, whose message says
+  the upload may still have been stored.
+- Five optional invoice fields on `orders->create()`, `orders->createSync()`,
+  `orders->sendReward()` and `sendReward()`, after the existing parameters:
+  `additionalReference`, `customerReference`, `articleNumber`, `description` and
+  `purchaseOrderFileToken` (the token from `uploads->create()`). Sent verbatim, and
+  omitted when null.
+
+### Changed
+
+- `Redact` masks `FileName` and `CustomerReference`, and reads this SDK's own objects
+  the way `var_dump()` shows them, so a redacted `HttpRequest` shows its body's size,
+  never the body. `file`, `fileName` and `customerReference` are
+  `#[\SensitiveParameter]`.
+- A custom `Transport` receives an upload as an ordinary string body, with its
+  multipart `Content-Type` header; it must send both exactly as given.
+- `TimeoutException` takes an optional trailing `$detail`, appended to its message.
+- The request-conformance gate validates a multipart/form-data body part by part, and
+  fails closed on any multipart shape it does not understand.
+
 ### What the API was confirmed to do
 
 The assumptions the specification left open were checked with real calls against

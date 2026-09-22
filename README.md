@@ -114,6 +114,35 @@ $huuray->orders->create(
 );
 ```
 
+## Attaching a purchase order
+
+Two steps: upload the file, then pass its token to the order.
+
+```php
+$upload = $huuray->uploads->create(
+    file: file_get_contents('purchase-order-4711.pdf'),   // the bytes, or an open stream
+    fileName: 'purchase-order-4711.pdf',
+    contentType: 'application/pdf',                     // optional
+);
+
+$huuray->orders->create(
+    productToken: 'the-product-you-chose',
+    value: 500_00,
+    currency: 'DKK',
+    quantity: 10,
+    refId: 'po-4711',
+    purchaseOrderFileToken: $upload->token,             // consumed by this order
+    additionalReference: 'PO-4711',
+    customerReference: 'Jane Doe',
+    articleNumber: 'ART-1',
+    description: 'Ten gift cards for the sales team',
+);
+```
+
+The five fields are optional, on `orders->create()`, `orders->createSync()` and `sendReward()`, and sent exactly as given. Each is accepted only when the matching option is enabled on your B2B account; otherwise the API rejects the order with a 422, thrown as `ValidationException`. Per the API reference, a file must be a PDF or an image of at most 10 MB. The client checks none of this — the API decides.
+
+**Uploads are never retried.** Each upload waits as a pending upload until an order uses its token, and the API allows at most five per account. A timeout or dropped connection throws the ordinary `TimeoutException` or `ConnectionException`: the upload may still have been stored, holding one of those slots, and you never got its token. For a large file, raise `timeoutMs` rather than retrying.
+
 ## Seven things worth knowing
 
 These are the parts of the API that are easy to get wrong. The client handles each one, but the behaviour is worth understanding.
@@ -240,7 +269,7 @@ new HuurayClient(apiToken: $token, apiSecret: $secret, hashEncoding: 'base64');
 
 ## API coverage
 
-All nine v4 operations, and nothing else. Every method maps to one operation in the [Swagger reference](https://api.huuray.com/swagger/index.html):
+All ten v4 operations, and nothing else. Every method maps to one operation in the [Swagger reference](https://api.huuray.com/swagger/index.html):
 
 | Method | Endpoint |
 |---|---|
@@ -255,6 +284,7 @@ All nine v4 operations, and nothing else. Every method maps to one operation in 
 | `orders->search(...)` | `POST /v4/Search` |
 | `orders->resend(...)` | `POST /v4/Resend` |
 | `orders->cancel(...)` | `DELETE /v4/Cancel` |
+| `uploads->create(...)` | `POST /v4/Upload` (multipart/form-data) |
 
 Orders also accept an optional `pdfTemplateUid`, from `templates->list()->pdfTemplates`, which attaches a PDF template to the emails the delivery template sends. It needs a `templateId`, and the client rejects it without one before sending anything. The PDF template must also be available for the ordered product's brand and country (`brandName` / `country` on the PDF template, where null means any); otherwise the API rejects the order with a 422, thrown as `ValidationException`. The client does not pre-check that.
 
