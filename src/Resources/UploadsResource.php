@@ -70,7 +70,8 @@ class UploadsResource extends AbstractResource
         } catch (TimeoutException $e) {
             throw new TimeoutException($e->method, $e->path, $e->timeoutMs, $e->getPrevious(), self::MAY_HAVE_BEEN_STORED);
         } catch (ConnectionException $e) {
-            throw new ConnectionException($e->getMessage() . ' ' . self::MAY_HAVE_BEEN_STORED, $e->method, $e->path, $e->getPrevious());
+            // The transport's message may or may not end in a full stop; exactly one separates it from the note.
+            throw new ConnectionException(rtrim($e->getMessage(), '. ') . '. ' . self::MAY_HAVE_BEEN_STORED, $e->method, $e->path, $e->getPrevious());
         }
 
         return new UploadResult(

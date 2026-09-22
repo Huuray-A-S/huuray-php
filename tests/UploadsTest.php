@@ -273,7 +273,7 @@ final class UploadsTest extends TestCase
         } catch (ConnectionException $e) {
             self::assertNotInstanceOf(TimeoutException::class, $e);
             self::assertSame($cause, $e->getPrevious());
-            self::assertStringStartsWith('POST /v4/Upload failed to reach the Huuray API: cURL error 7: Failed to connect The upload may still have been stored', $e->getMessage());
+            self::assertStringStartsWith('POST /v4/Upload failed to reach the Huuray API: cURL error 7: Failed to connect. The upload may still have been stored', $e->getMessage());
         }
     }
 
