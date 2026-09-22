@@ -323,6 +323,11 @@ final class UploadsTest extends TestCase
     public function testRedactMasksTheFileNameInAResponseBody(): void
     {
         self::assertSame(['FileName' => 'ja***df', 'Token' => 't'], Redact::redact(['FileName' => 'jane-doe-po.pdf', 'Token' => 't']));
+        // The mapped spelling as well, as in a result that became an array.
+        self::assertSame(
+            ['FileName' => 'ja***df', 'fileName' => 'ja***df', 'Token' => 't'],
+            Redact::redact(['FileName' => 'jane-doe-po.pdf', 'fileName' => 'jane-doe-po.pdf', 'Token' => 't']),
+        );
     }
 
     public function testAnErrorBodyEchoingTheFileNameIsRedactedOnTheException(): void
