@@ -34,11 +34,18 @@ final class ConformanceTest extends TestCase
     private const ORDER_PARAMETERS = [
         'productToken', 'value', 'currency', 'quantity', 'expires', 'refId', 'templateId',
         'pdfTemplateUid', 'deliveryDatetime', 'personalMessage', 'recipients',
+        ...self::INVOICE_PARAMETERS,
     ];
 
     private const SEND_REWARD_PARAMETERS = [
         'productToken', 'value', 'currency', 'recipient', 'templateId', 'refId',
         'pdfTemplateUid', 'expires', 'deliveryDatetime', 'personalMessage',
+        ...self::INVOICE_PARAMETERS,
+    ];
+
+    /** The invoice fields every order method takes, last and in the specification's order. */
+    private const INVOICE_PARAMETERS = [
+        'additionalReference', 'customerReference', 'articleNumber', 'description', 'purchaseOrderFileToken',
     ];
 
     /**
@@ -643,6 +650,11 @@ final class ConformanceTest extends TestCase
                 new Recipient(name: 'A', email: 'a@example.com', refId: 'r-a'),
                 new Recipient(name: 'B', phone: '+4512345678', refId: 'r-b'),
             ],
+            additionalReference: 'PO-4711',
+            customerReference: 'Jane Doe',
+            articleNumber: 'ART-1',
+            description: 'Gift cards for the sales team',
+            purchaseOrderFileToken: '60050460-7a2d-42a8-a4dd-5cef88ad8374',
         );
 
         $client->orders->createSync(
@@ -657,6 +669,11 @@ final class ConformanceTest extends TestCase
             deliveryDatetime: $deliverAt,
             personalMessage: 'Thanks',
             recipients: [new Recipient(name: 'C', email: 'c@example.com', phone: '+4500000001', refId: 'r-c')],
+            additionalReference: 'PO-4712',
+            customerReference: 'John Roe',
+            articleNumber: 'ART-2',
+            description: 'One card, synchronously',
+            purchaseOrderFileToken: '60050460-7a2d-42a8-a4dd-5cef88ad8375',
         );
 
         $client->orders->sendReward(
@@ -670,6 +687,11 @@ final class ConformanceTest extends TestCase
             expires: '2027-01-01T00:00:00Z',
             deliveryDatetime: '2026-09-01T09:00:00Z',
             personalMessage: 'Nice work',
+            additionalReference: 'PO-4713',
+            customerReference: 'Jane Doe',
+            articleNumber: 'ART-3',
+            description: 'A reward',
+            purchaseOrderFileToken: '60050460-7a2d-42a8-a4dd-5cef88ad8376',
         );
 
         // The one-call convenience on the client itself, with every optional argument.
@@ -684,6 +706,11 @@ final class ConformanceTest extends TestCase
             expires: $expires,
             deliveryDatetime: $deliverAt,
             personalMessage: 'Well done',
+            additionalReference: 'PO-4714',
+            customerReference: 'Ole Olsen',
+            articleNumber: 'ART-4',
+            description: 'A reward from the client',
+            purchaseOrderFileToken: '60050460-7a2d-42a8-a4dd-5cef88ad8377',
         );
 
         $client->orders->search(

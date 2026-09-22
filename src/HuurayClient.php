@@ -189,6 +189,9 @@ class HuurayClient
      * without it there is no way to find out whether an order landed after a
      * timeout. See {@see IndeterminateOrderException}.
      *
+     * The invoice fields, `additionalReference` to `purchaseOrderFileToken`, are
+     * the same as on `orders->create()`.
+     *
      * @param int $value                Denomination **in minor units** — 50.00 is `5000`. Any float or bool is
      *                                  rejected.
      * @param string|null $pdfTemplateUid PDF template uid from `templates->list()->pdfTemplates`, attached as a
@@ -216,6 +219,12 @@ class HuurayClient
         \DateTimeInterface|string|null $deliveryDatetime = null,
         #[\SensitiveParameter]
         ?string $personalMessage = null,
+        ?string $additionalReference = null,
+        #[\SensitiveParameter]
+        ?string $customerReference = null,
+        ?string $articleNumber = null,
+        ?string $description = null,
+        ?string $purchaseOrderFileToken = null,
     ): CreateOrderResult {
         return $this->orders->sendReward(
             productToken: $productToken,
@@ -228,6 +237,11 @@ class HuurayClient
             expires: $expires,
             deliveryDatetime: $deliveryDatetime,
             personalMessage: $personalMessage,
+            additionalReference: $additionalReference,
+            customerReference: $customerReference,
+            articleNumber: $articleNumber,
+            description: $description,
+            purchaseOrderFileToken: $purchaseOrderFileToken,
         );
     }
 

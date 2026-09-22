@@ -64,6 +64,13 @@ final class RedactTest extends TestCase
         self::assertSame(['Email' => 'ja***om'], $out);
     }
 
+    public function testMasksTheCustomerReferenceItNamesAPerson(): void
+    {
+        $out = Redact::redact(['CustomerReference' => 'Jane Doe', 'customerReference' => 'John Roe', 'AdditionalReference' => 'PO-4711']);
+
+        self::assertSame(['CustomerReference' => 'Ja***oe', 'customerReference' => 'Jo***oe', 'AdditionalReference' => 'PO-4711'], $out);
+    }
+
     public function testMasksShortPersonalDataCompletely(): void
     {
         self::assertSame(['phone' => '***'], Redact::redact(['phone' => '1234']));

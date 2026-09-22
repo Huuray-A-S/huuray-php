@@ -44,6 +44,14 @@ class OrdersResource extends AbstractResource
      * can order twice. A timeout, a dropped connection, a 5xx, or an unreadable
      * 2xx body throws IndeterminateOrderException instead.
      *
+     * `additionalReference`, `customerReference`, `articleNumber`, `description` and
+     * `purchaseOrderFileToken` are the invoice fields of the B2B send pages; the
+     * token is one returned by `uploads->create()`, and attaches that file to the
+     * invoice. Each is optional, sent verbatim when given and omitted when null.
+     * The API accepts each only when the matching option is enabled on your
+     * account, and otherwise rejects the order with a 422, thrown as
+     * ValidationException. This client does not pre-check them.
+     *
      * @param string                         $productToken     Product identifier from `catalogue->list()`.
      * @param int                            $value            Denomination **in minor units** — 50.00 is `5000`.
      *                                                         Any float or bool is rejected, including 50.00.
@@ -93,6 +101,12 @@ class OrdersResource extends AbstractResource
         ?string $personalMessage = null,
         #[\SensitiveParameter]
         ?array $recipients = null,
+        ?string $additionalReference = null,
+        #[\SensitiveParameter]
+        ?string $customerReference = null,
+        ?string $articleNumber = null,
+        ?string $description = null,
+        ?string $purchaseOrderFileToken = null,
     ): CreateOrderResult {
         $body = self::buildOrderBody(
             $productToken,
@@ -107,6 +121,11 @@ class OrdersResource extends AbstractResource
             $deliveryDatetime,
             $personalMessage,
             $recipients,
+            $additionalReference,
+            $customerReference,
+            $articleNumber,
+            $description,
+            $purchaseOrderFileToken,
         );
         $data = $this->postOrder($body, $refId);
 
@@ -157,6 +176,12 @@ class OrdersResource extends AbstractResource
         ?string $personalMessage = null,
         #[\SensitiveParameter]
         ?array $recipients = null,
+        ?string $additionalReference = null,
+        #[\SensitiveParameter]
+        ?string $customerReference = null,
+        ?string $articleNumber = null,
+        ?string $description = null,
+        ?string $purchaseOrderFileToken = null,
     ): CreateSyncOrderResult {
         // Type first: the limit must never be checked against a coerced or fractional count.
         $quantity = Wire::requirePositiveInt($quantity, 'quantity');
@@ -181,6 +206,11 @@ class OrdersResource extends AbstractResource
             $deliveryDatetime,
             $personalMessage,
             $recipients,
+            $additionalReference,
+            $customerReference,
+            $articleNumber,
+            $description,
+            $purchaseOrderFileToken,
         );
         $data = $this->postOrder($body, $refId);
 
@@ -199,6 +229,9 @@ class OrdersResource extends AbstractResource
      * `refId` is required here even though the API treats it as optional, and is
      * never generated for you: a generated key is not in your system, so it could
      * not be used to reconcile an order whose outcome is unknown.
+     *
+     * The invoice fields, `additionalReference` to `purchaseOrderFileToken`, are
+     * the same as on {@see self::create()}.
      *
      * @param int         $value          Denomination **in minor units** — 50.00 is `5000`. Any float or bool is
      *                                    rejected.
@@ -230,6 +263,12 @@ class OrdersResource extends AbstractResource
         \DateTimeInterface|string|null $deliveryDatetime = null,
         #[\SensitiveParameter]
         ?string $personalMessage = null,
+        ?string $additionalReference = null,
+        #[\SensitiveParameter]
+        ?string $customerReference = null,
+        ?string $articleNumber = null,
+        ?string $description = null,
+        ?string $purchaseOrderFileToken = null,
     ): CreateOrderResult {
         if ($refId === '') {
             throw new \InvalidArgumentException(
@@ -251,6 +290,11 @@ class OrdersResource extends AbstractResource
             deliveryDatetime: $deliveryDatetime,
             personalMessage: $personalMessage,
             recipients: [$recipient],
+            additionalReference: $additionalReference,
+            customerReference: $customerReference,
+            articleNumber: $articleNumber,
+            description: $description,
+            purchaseOrderFileToken: $purchaseOrderFileToken,
         );
     }
 
@@ -402,6 +446,12 @@ class OrdersResource extends AbstractResource
         ?string $personalMessage,
         #[\SensitiveParameter]
         ?array $recipients,
+        ?string $additionalReference,
+        #[\SensitiveParameter]
+        ?string $customerReference,
+        ?string $articleNumber,
+        ?string $description,
+        ?string $purchaseOrderFileToken,
     ): \stdClass {
         $value = Wire::requireMinorUnits($value);
         $quantity = Wire::requirePositiveInt($quantity, 'quantity');
@@ -466,6 +516,11 @@ class OrdersResource extends AbstractResource
             'DeliveryDatetime' => Wire::dateTime($deliveryDatetime),
             'PersonalMessage' => $personalMessage,
             'Recipients' => $wireRecipients,
+            'AdditionalReference' => $additionalReference,
+            'CustomerReference' => $customerReference,
+            'ArticleNumber' => $articleNumber,
+            'Description' => $description,
+            'PurchaseOrderFileToken' => $purchaseOrderFileToken,
         ]);
     }
 

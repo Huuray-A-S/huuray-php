@@ -35,6 +35,8 @@ final class Redact
         'email',
         'Phone',
         'phone',
+        'CustomerReference',
+        'customerReference',
     ];
 
     /** Replacement for a value that could be redeemed for money. */

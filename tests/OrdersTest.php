@@ -517,6 +517,129 @@ final class OrdersTest extends TestCase
         self::assertCount(1, $transport->calls);
     }
 
+    // ----------------------------------------------------------- invoice fields
+
+    /** @return iterable<string, array{string}> */
+    public static function invoiceEntryPoints(): iterable
+    {
+        yield 'orders->create' => ['create'];
+        yield 'orders->createSync' => ['createSync'];
+        yield 'orders->sendReward' => ['orders->sendReward'];
+        yield 'client->sendReward' => ['client->sendReward'];
+    }
+
+    #[DataProvider('invoiceEntryPoints')]
+    public function testSendsEachInvoiceFieldVerbatimUnderItsSpecName(string $entryPoint): void
+    {
+        [$client, $transport] = TestClient::make(new MockResponse(json: ['OrderUID' => 'x', 'Vouchers' => []]));
+        // Nothing here is checked by the client — not the 250-character limit, not a
+        // script tag, not the GUID format of the token, not surrounding spaces. The
+        // API decides, so each value reaches the wire exactly as given.
+        $invoice = [
+            'additionalReference' => ' PO-4711 ',
+            'customerReference' => str_repeat('Jane Doe ', 40),
+            'articleNumber' => '<script>alert(1)</script>',
+            'description' => 'Ten gift cards for the sales team — ÆØÅ',
+            'purchaseOrderFileToken' => 'not-a-guid',
+        ];
+
+        self::invoiceOrder($client, $entryPoint, $invoice);
+
+        self::assertCount(1, $transport->calls);
+        self::assertSame('POST', $transport->calls[0]->method);
+        self::assertSame('/v4/Order', $transport->calls[0]->path);
+        self::assertSame(' PO-4711 ', $transport->calls[0]->field('AdditionalReference'));
+        self::assertSame(str_repeat('Jane Doe ', 40), $transport->calls[0]->field('CustomerReference'));
+        self::assertSame('<script>alert(1)</script>', $transport->calls[0]->field('ArticleNumber'));
+        self::assertSame('Ten gift cards for the sales team — ÆØÅ', $transport->calls[0]->field('Description'));
+        self::assertSame('not-a-guid', $transport->calls[0]->field('PurchaseOrderFileToken'));
+    }
+
+    #[DataProvider('invoiceEntryPoints')]
+    public function testOmitsEveryInvoiceFieldThatWasNotGiven(string $entryPoint): void
+    {
+        [$client, $transport] = TestClient::make(new MockResponse(json: ['OrderUID' => 'x', 'Vouchers' => []]));
+
+        self::invoiceOrder($client, $entryPoint, []);
+
+        self::assertCount(1, $transport->calls);
+        foreach (['AdditionalReference', 'CustomerReference', 'ArticleNumber', 'Description', 'PurchaseOrderFileToken'] as $key) {
+            self::assertFalse($transport->calls[0]->hasField($key), $key . ' must be omitted, not sent as null');
+        }
+    }
+
+    public function testSendsEachInvoiceFieldIndependentlyOfTheOthers(): void
+    {
+        [$client, $transport] = TestClient::make(new MockResponse(json: ['OrderUID' => 'x']));
+
+        self::invoiceOrder($client, 'create', ['purchaseOrderFileToken' => '60050460-7a2d-42a8-a4dd-5cef88ad8374', 'description' => '']);
+
+        self::assertSame('60050460-7a2d-42a8-a4dd-5cef88ad8374', $transport->calls[0]->field('PurchaseOrderFileToken'));
+        // An empty string was given, so an empty string is sent; only null means "not given".
+        self::assertTrue($transport->calls[0]->hasField('Description'));
+        self::assertSame('', $transport->calls[0]->field('Description'));
+        self::assertFalse($transport->calls[0]->hasField('AdditionalReference'));
+        self::assertFalse($transport->calls[0]->hasField('CustomerReference'));
+        self::assertFalse($transport->calls[0]->hasField('ArticleNumber'));
+    }
+
+    public function testAnInvoiceFieldTheAccountHasNotEnabledIsTheApisValidationError(): void
+    {
+        [$client, $transport] = TestClient::make(new MockResponse(
+            status: 422,
+            json: ['Status' => 422, 'StatusMessage' => 'The account does not accept a purchase order file'],
+        ));
+
+        try {
+            self::invoiceOrder($client, 'create', ['purchaseOrderFileToken' => '60050460-7a2d-42a8-a4dd-5cef88ad8374']);
+            self::fail('Expected a ValidationException.');
+        } catch (ValidationException $e) {
+            // A definitive rejection, so ValidationException — never IndeterminateOrderException.
+            self::assertSame('The account does not accept a purchase order file', $e->statusMessage);
+        }
+        self::assertCount(1, $transport->calls);
+    }
+
+    #[DataProvider('invoiceEntryPoints')]
+    public function testNoExceptionTraceCarriesTheCustomerReference(string $entryPoint): void
+    {
+        // Off is PHP's built-in default: exception traces then keep every argument.
+        // Forced here so this assertion can never pass vacuously.
+        $ignoreArgs = ini_set('zend.exception_ignore_args', '0');
+        [$client, $transport] = TestClient::make(new MockResponse(status: 422));
+        $caught = null;
+
+        try {
+            // Literals in the test body, so no test frame's own arguments hold them.
+            $recipient = new Recipient(email: 'a@example.com');
+            match ($entryPoint) {
+                'create' => $client->orders->create(productToken: 'tok', value: 5000, currency: 'DKK', quantity: 1, refId: 'r', templateId: 42, recipients: [$recipient], additionalReference: 'ref-args-are-kept', customerReference: 'Customer Canary'),
+                'createSync' => $client->orders->createSync(productToken: 'tok', value: 5000, currency: 'DKK', quantity: 1, refId: 'r', templateId: 42, recipients: [$recipient], additionalReference: 'ref-args-are-kept', customerReference: 'Customer Canary'),
+                'orders->sendReward' => $client->orders->sendReward(productToken: 'tok', value: 5000, currency: 'DKK', recipient: $recipient, templateId: 42, refId: 'r', additionalReference: 'ref-args-are-kept', customerReference: 'Customer Canary'),
+                'client->sendReward' => $client->sendReward(productToken: 'tok', value: 5000, currency: 'DKK', recipient: $recipient, templateId: 42, refId: 'r', additionalReference: 'ref-args-are-kept', customerReference: 'Customer Canary'),
+                default => throw new \LogicException('Unknown entry point ' . $entryPoint),
+            };
+        } catch (HuurayException $e) {
+            $caught = $e;
+        } finally {
+            ini_set('zend.exception_ignore_args', $ignoreArgs === false ? '0' : $ignoreArgs);
+        }
+
+        self::assertNotNull($caught, 'Expected the call to throw.');
+        self::assertCount(1, $transport->calls);
+        // The request really carried it, so its absence below means something.
+        self::assertSame('Customer Canary', $transport->calls[0]->field('CustomerReference'));
+
+        $traces = '';
+        for ($exception = $caught; $exception !== null; $exception = $exception->getPrevious()) {
+            $traces .= print_r($exception->getTrace(), true);
+        }
+
+        self::assertStringContainsString('ref-args-are-kept', $traces);
+        self::assertStringContainsString('SensitiveParameterValue', $traces);
+        self::assertStringNotContainsString('Customer Canary', $traces);
+    }
+
     // -------------------------------------------------------------- sendReward
 
     public function testSendRewardMakesExactlyOnePostOrderWithQuantity1AndSyncFalse(): void
@@ -580,6 +703,11 @@ final class OrdersTest extends TestCase
             'expires' => '2027-03-01T00:00:00Z',
             'deliveryDatetime' => '2026-10-01T08:00:00Z',
             'personalMessage' => 'Forwarded',
+            'additionalReference' => 'PO-fwd',
+            'customerReference' => 'Fwd Customer',
+            'articleNumber' => 'ART-fwd',
+            'description' => 'Forwarded description',
+            'purchaseOrderFileToken' => '60050460-7a2d-42a8-a4dd-5cef88ad83f0',
         ];
 
         if ($entryPoint === 'client') {
@@ -605,6 +733,11 @@ final class OrdersTest extends TestCase
                 'DeliveryDatetime' => '2026-10-01T08:00:00Z',
                 'PersonalMessage' => 'Forwarded',
                 'Recipients' => [['Name' => 'Fwd', 'Email' => 'fwd@example.com', 'Phone' => '+4511110000', 'RefID' => 'r-fwd']],
+                'AdditionalReference' => 'PO-fwd',
+                'CustomerReference' => 'Fwd Customer',
+                'ArticleNumber' => 'ART-fwd',
+                'Description' => 'Forwarded description',
+                'PurchaseOrderFileToken' => '60050460-7a2d-42a8-a4dd-5cef88ad83f0',
             ],
             $transport->calls[0]->body,
         );
@@ -996,6 +1129,79 @@ final class OrdersTest extends TestCase
                 pdfTemplateUid: $pdfTemplateUid,
             ),
             default => throw new \LogicException('Unknown order method ' . $method),
+        };
+    }
+
+    /**
+     * Places a valid order through one entry point, with the given invoice fields and no others.
+     *
+     * @param array<string, string> $invoice Invoice field parameter name => value.
+     */
+    private static function invoiceOrder(HuurayClient $client, string $entryPoint, array $invoice): object
+    {
+        $recipient = new Recipient(email: 'a@example.com');
+        $additionalReference = $invoice['additionalReference'] ?? null;
+        $customerReference = $invoice['customerReference'] ?? null;
+        $articleNumber = $invoice['articleNumber'] ?? null;
+        $description = $invoice['description'] ?? null;
+        $purchaseOrderFileToken = $invoice['purchaseOrderFileToken'] ?? null;
+
+        return match ($entryPoint) {
+            'create' => $client->orders->create(
+                productToken: 'tok',
+                value: 5000,
+                currency: 'DKK',
+                quantity: 1,
+                refId: 'r-invoice',
+                templateId: 42,
+                recipients: [$recipient],
+                additionalReference: $additionalReference,
+                customerReference: $customerReference,
+                articleNumber: $articleNumber,
+                description: $description,
+                purchaseOrderFileToken: $purchaseOrderFileToken,
+            ),
+            'createSync' => $client->orders->createSync(
+                productToken: 'tok',
+                value: 5000,
+                currency: 'DKK',
+                quantity: 1,
+                refId: 'r-invoice',
+                templateId: 42,
+                recipients: [$recipient],
+                additionalReference: $additionalReference,
+                customerReference: $customerReference,
+                articleNumber: $articleNumber,
+                description: $description,
+                purchaseOrderFileToken: $purchaseOrderFileToken,
+            ),
+            'orders->sendReward' => $client->orders->sendReward(
+                productToken: 'tok',
+                value: 5000,
+                currency: 'DKK',
+                recipient: $recipient,
+                templateId: 42,
+                refId: 'r-invoice',
+                additionalReference: $additionalReference,
+                customerReference: $customerReference,
+                articleNumber: $articleNumber,
+                description: $description,
+                purchaseOrderFileToken: $purchaseOrderFileToken,
+            ),
+            'client->sendReward' => $client->sendReward(
+                productToken: 'tok',
+                value: 5000,
+                currency: 'DKK',
+                recipient: $recipient,
+                templateId: 42,
+                refId: 'r-invoice',
+                additionalReference: $additionalReference,
+                customerReference: $customerReference,
+                articleNumber: $articleNumber,
+                description: $description,
+                purchaseOrderFileToken: $purchaseOrderFileToken,
+            ),
+            default => throw new \LogicException('Unknown entry point ' . $entryPoint),
         };
     }
 
