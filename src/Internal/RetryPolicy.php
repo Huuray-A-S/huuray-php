@@ -18,7 +18,10 @@ use Huuray\RetryOptions;
  * HTTP method. Each resource method declares whether it is safe to repeat:
  *
  *   retryable    Balance, ExchangeRates, Catalogue, Template, Stock, Search
- *   never        Order, Resend, Cancel
+ *   never        Order, Resend, Cancel, Upload
+ *
+ * Upload moves no value, but a retried upload stores the file a second time,
+ * and each stored upload holds one of the account's pending upload slots.
  *
  * Four of the retryable operations are POSTs. They are POSTs because they take a
  * request body, not because they change anything.

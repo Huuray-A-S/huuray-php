@@ -14,6 +14,7 @@ use Huuray\Http\CurlTransport;
 use Huuray\Http\HttpRequest;
 use Huuray\Http\Transport;
 use Huuray\Http\TransportTimeoutException;
+use Huuray\Internal\MultipartBody;
 use Huuray\Internal\RetryPolicy;
 use Huuray\Resources\BalancesResource;
 use Huuray\Resources\CatalogueResource;
@@ -21,6 +22,7 @@ use Huuray\Resources\ExchangeRatesResource;
 use Huuray\Resources\OrdersResource;
 use Huuray\Resources\StockResource;
 use Huuray\Resources\TemplatesResource;
+use Huuray\Resources\UploadsResource;
 use Huuray\Result\CreateOrderResult;
 
 /**
@@ -54,6 +56,7 @@ class HuurayClient
     public readonly StockResource $stock;
     public readonly ExchangeRatesResource $exchangeRates;
     public readonly OrdersResource $orders;
+    public readonly UploadsResource $uploads;
 
     private readonly string $apiToken;
     private readonly string $apiSecret;
@@ -176,6 +179,7 @@ class HuurayClient
         $this->stock = new StockResource($this);
         $this->exchangeRates = new ExchangeRatesResource($this);
         $this->orders = new OrdersResource($this);
+        $this->uploads = new UploadsResource($this);
     }
 
     /**
@@ -289,7 +293,8 @@ class HuurayClient
      *
      * @internal Not part of the semver-stable surface; use {@see self::request()}.
      *
-     * @param mixed                          $body  JSON request body. Null sends no body at all.
+     * @param mixed                          $body  JSON request body, or a MultipartBody, sent as built. Null sends
+     *                                              no body at all.
      * @param array<string, string|int|null> $query Query string parameters. Null values are dropped.
      *
      * @throws \InvalidArgumentException before any request, for a method that is not an HTTP token, a path that does
@@ -331,7 +336,12 @@ class HuurayClient
         }
 
         $payload = null;
-        if ($body !== null) {
+        $contentType = null;
+        if ($body instanceof MultipartBody) {
+            // Built in full, boundary included, so the transport sends it like any other string body.
+            $payload = $body->body();
+            $contentType = $body->contentType;
+        } elseif ($body !== null) {
             try {
                 $payload = json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             } catch (\JsonException $e) {
@@ -344,6 +354,7 @@ class HuurayClient
                     $e->getMessage(),
                 ));
             }
+            $contentType = 'application/json';
         }
 
         $attempts = $retryable ? $this->retry->maxRetries : 0;
@@ -358,8 +369,8 @@ class HuurayClient
             $headers = Auth::buildAuthHeaders($this->apiToken, $this->apiSecret, ($this->nonceFactory)(), $this->hashEncoding);
             $headers['Accept'] = 'application/json';
             $headers['User-Agent'] = $this->userAgent;
-            if ($payload !== null) {
-                $headers['Content-Type'] = 'application/json';
+            if ($contentType !== null) {
+                $headers['Content-Type'] = $contentType;
             }
 
             // Backstop behind the constructor and nonce checks. It sits before the

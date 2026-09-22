@@ -10,6 +10,7 @@ use Huuray\Recipient;
 use Huuray\Resources\AbstractResource;
 use Huuray\Tests\Support\CapturedRequest;
 use Huuray\Tests\Support\MockResponse;
+use Huuray\Tests\Support\MultipartPart;
 use Huuray\Tests\Support\SpecValidator;
 use Huuray\Tests\Support\TestClient;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -80,6 +81,7 @@ final class ConformanceTest extends TestCase
             ],
             'sendReward' => self::SEND_REWARD_PARAMETERS,
         ],
+        'UploadsResource' => ['create' => ['file', 'fileName', 'contentType']],
         'HuurayClient' => ['sendReward' => self::SEND_REWARD_PARAMETERS],
     ];
 
@@ -214,6 +216,19 @@ final class ConformanceTest extends TestCase
         self::assertFalse($cancelCalls[0]->bodyOmitted);
     }
 
+    public function testTheGateReadsTheUploadAsAMultipartBodyWithOnePartNamedFile(): void
+    {
+        // The multipart branch of the gate above only runs on parts it could parse;
+        // this pins that it did, so the upload cannot pass it by being unreadable.
+        $uploads = array_values(array_filter(self::calls(), static fn(CapturedRequest $call): bool => $call->path === '/v4/Upload'));
+
+        self::assertCount(1, $uploads);
+        self::assertSame('multipart/form-data', $uploads[0]->mediaType());
+        self::assertNull($uploads[0]->multipartError);
+        self::assertSame(['File'], array_map(static fn(MultipartPart $part): ?string => $part->name, $uploads[0]->parts ?? []));
+        self::assertSame(['multipart/form-data'], array_keys(self::spec()->requestContent('POST', '/v4/Upload')));
+    }
+
     // ----------------------------------------- the harness stays linked to the surface
 
     public function testEveryPublicResourceMethodAndItsParametersAreOnTheInventory(): void
@@ -226,6 +241,7 @@ final class ConformanceTest extends TestCase
             $client->stock,
             $client->exchangeRates,
             $client->orders,
+            $client->uploads,
         ];
 
         $actual = [];
@@ -729,6 +745,8 @@ final class ConformanceTest extends TestCase
 
         $client->orders->resend(orderUid: 'uid', voucherId: 7);
         $client->orders->cancel(orderUid: 'uid', voucherId: 7);
+
+        $client->uploads->create(file: "%PDF-1.7\r\n%\xE2\xE3\xCF\xD3\r\n", fileName: 'purchase-order-4711.pdf', contentType: 'application/pdf');
     }
 
     /** @return list<CapturedRequest> */

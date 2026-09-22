@@ -13,7 +13,8 @@ final readonly class HttpRequest
      * @param string                $method    Upper-case HTTP verb.
      * @param string                $url       Absolute URL, including any query string.
      * @param array<string, string> $headers   Header name => value. Includes the auth headers.
-     * @param string|null           $body      The JSON body, or null for **no body at all**.
+     * @param string|null           $body      The JSON body — or, for an upload, the multipart/form-data body — or
+     *                                         null for **no body at all**.
      * @param int                   $timeoutMs Total time allowed for the exchange. Always at least 1.
      */
     public function __construct(

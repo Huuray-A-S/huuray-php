@@ -106,7 +106,8 @@ final class CurlTransport implements Transport
 
         if ($request->body !== null) {
             // With CURLOPT_CUSTOMREQUEST this carries the body on DELETE too —
-            // DELETE /v4/Cancel takes a JSON body.
+            // DELETE /v4/Cancel takes a JSON body. A string is sent byte for byte,
+            // NUL bytes included, which an upload's multipart body relies on.
             $options[CURLOPT_POSTFIELDS] = $request->body;
         } elseif (in_array(strtoupper($request->method), ['POST', 'PUT', 'PATCH'], true)) {
             // No body at all — POST /v4/Template declares none — but still an

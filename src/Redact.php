@@ -37,6 +37,8 @@ final class Redact
         'phone',
         'CustomerReference',
         'customerReference',
+        'FileName',
+        'fileName',
     ];
 
     /** Replacement for a value that could be redeemed for money. */
@@ -51,8 +53,10 @@ final class Redact
      *
      * Understands arrays, `JsonSerializable` objects and plain objects — including
      * the result objects this SDK returns, whose public properties are read — so
-     * both raw response bodies and mapped results are covered. Objects come back
-     * as associative arrays.
+     * both raw response bodies and mapped results are covered. An object of this
+     * SDK that shapes its own `var_dump()` output is read through that instead, so
+     * a request or response body — an uploaded file's bytes among them — shows as
+     * its size. Objects come back as associative arrays.
      *
      * Use it for anything human-facing. It is deliberately lossy: a redacted
      * voucher code cannot be recovered from the output.
@@ -123,6 +127,8 @@ final class Redact
             if (is_object($value)) {
                 $value = get_object_vars($value);
             }
+        } elseif (is_object($value) && str_starts_with($value::class, 'Huuray\\') && method_exists($value, '__debugInfo')) {
+            $value = $value->__debugInfo();
         } elseif (is_object($value)) {
             // Called from this class's scope, so only public properties are read.
             $value = get_object_vars($value);

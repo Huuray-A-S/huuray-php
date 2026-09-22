@@ -62,6 +62,26 @@ final class CurlTransportTest extends TestCase
         self::assertNotContains('Content-Length: 0', self::headers($options));
     }
 
+    public function testSendsAMultipartBodyByteForByteWithItsContentType(): void
+    {
+        // An upload's body: binary, NUL bytes included, delimited by the boundary in the header.
+        $body = "--b\r\nContent-Disposition: form-data; name=\"File\"; filename=\"po.pdf\"\r\n"
+            . "Content-Type: application/pdf\r\n\r\n%PDF\x00\xFF\r\n--b--\r\n";
+        $request = new HttpRequest(
+            'POST',
+            'https://api.huuray.com/v4/Upload',
+            ['X-API-TOKEN' => 'tok', 'Content-Type' => 'multipart/form-data; boundary=b'],
+            $body,
+            30_000,
+        );
+
+        $options = (new CurlTransport())->buildOptions($request);
+
+        self::assertSame($body, $options[CURLOPT_POSTFIELDS]);
+        self::assertContains('Content-Type: multipart/form-data; boundary=b', self::headers($options));
+        self::assertNotContains('Content-Length: 0', self::headers($options));
+    }
+
     public function testSendsNoBodyForAGet(): void
     {
         $options = (new CurlTransport())->buildOptions(self::request('GET', null));

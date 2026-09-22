@@ -195,6 +195,28 @@ final class RedactTest extends TestCase
         self::assertStringNotContainsString('REAL-CODE-123', $dump);
     }
 
+    public function testRedactReadsTransportObjectsTheWayTheyDumpNeverTheirBodies(): void
+    {
+        // Without this, Redact::safeJson($request) — in a custom transport's log line —
+        // would print the body in full: recipients, or an uploaded file's bytes.
+        $request = new HttpRequest(
+            'POST',
+            'https://api.huuray.com/v4/Search',
+            ['X-API-TOKEN' => 'tok_live_abcdef'],
+            '{"RecipientEmail":"jane@example.com"}',
+            30_000,
+        );
+        $response = new HttpResponse(200, '{"Vouchers":[{"Code":"REAL-CODE-123"}]}');
+
+        $out = Redact::safeJson([$request, $response]);
+
+        self::assertStringNotContainsString('jane@example.com', $out);
+        self::assertStringNotContainsString('REAL-CODE-123', $out);
+        self::assertStringNotContainsString('tok_live_abcdef', $out);
+        self::assertStringContainsString('"body":"[37 bytes]"', $out);
+        self::assertStringContainsString('https://api.huuray.com/v4/Search', $out);
+    }
+
     public function testTheClientNeverDumpsItsCredentials(): void
     {
         $client = new HuurayClient(apiToken: 'tok_live_abcdef', apiSecret: 'shhh-secret-9f2c', transport: new FakeTransport());

@@ -29,7 +29,9 @@ namespace Huuray\Http;
  *    other exception — ideally {@see TransportException} — for every other
  *    failure. Never put a request or response body in an exception message.
  * 5. **Send `$request->body` exactly as given**: no body at all when it is null,
- *    even for POST, and the JSON body when it is set, even for DELETE.
+ *    even for POST, and the body byte for byte when it is set, even for DELETE.
+ *    It is JSON, or for an upload a multipart/form-data body whose boundary is in
+ *    the `Content-Type` header — send that header as given, too.
  * 6. **Do not retry, and do not follow redirects to another host.** The SDK owns
  *    the retry decision, and it never repeats an order.
  */
