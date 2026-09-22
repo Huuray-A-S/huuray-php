@@ -640,6 +640,32 @@ final class OrdersTest extends TestCase
         self::assertStringNotContainsString('Customer Canary', $traces);
     }
 
+    public function testATraceFromValidationBeforeSendingCarriesNoCustomerReference(): void
+    {
+        // Off is PHP's built-in default: exception traces then keep every argument.
+        // Forced here so this assertion can never pass vacuously.
+        $ignoreArgs = ini_set('zend.exception_ignore_args', '0');
+        [$client, $transport] = TestClient::make();
+        $traces = '';
+
+        try {
+            // Rejected inside buildOrderBody(), whose frame a failure from the API never includes.
+            // @phpstan-ignore argument.type (deliberately wrong, as an untyped caller might pass)
+            $client->orders->create(productToken: 'tok', value: 50.5, currency: 'DKK', quantity: 1, additionalReference: 'ref-args-are-kept', customerReference: 'Customer Canary');
+            self::fail('Expected the value to be rejected.');
+        } catch (\InvalidArgumentException $e) {
+            $traces = print_r($e->getTrace(), true);
+        } finally {
+            ini_set('zend.exception_ignore_args', $ignoreArgs === false ? '0' : $ignoreArgs);
+        }
+
+        self::assertCount(0, $transport->calls);
+        self::assertStringContainsString('buildOrderBody', $traces);
+        self::assertStringContainsString('ref-args-are-kept', $traces);
+        self::assertStringContainsString('SensitiveParameterValue', $traces);
+        self::assertStringNotContainsString('Customer Canary', $traces);
+    }
+
     // -------------------------------------------------------------- sendReward
 
     public function testSendRewardMakesExactlyOnePostOrderWithQuantity1AndSyncFalse(): void
