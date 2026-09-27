@@ -666,7 +666,9 @@ final class PdfsTest extends TestCase
 
     public function testGetWhenReadyWaitsTenMinutesByDefault(): void
     {
-        [$pdfs, $transport, $clock] = self::pdfs(self::notReady(retryAfter: '30'));
+        // Exactly the 21 asks that ten minutes of 30-second waits allow: a helper that
+        // never gave up fails on the 22nd request, rather than poll until memory runs out.
+        [$pdfs, $transport, $clock] = self::pdfs(array_fill(0, 21, self::notReady(retryAfter: '30')));
 
         try {
             $pdfs->getWhenReady(orderUid: self::ORDER_UID);
