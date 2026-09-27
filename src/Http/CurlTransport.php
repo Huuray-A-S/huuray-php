@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Huuray\Http;
 
 use Huuray\Exception\ConfigurationException;
+use Huuray\Internal\ResponseHeaders;
 
 /**
  * The default transport, built on ext-curl. No Composer dependencies.
@@ -38,7 +39,12 @@ final class CurlTransport implements Transport
     ): HttpResponse {
         $handle = $this->handle();
 
-        if (!curl_setopt_array($handle, $this->buildOptions($request))) {
+        // Set here rather than in buildOptions(): each exchange gets its own collector.
+        $headers = new ResponseHeaders();
+        $options = $this->buildOptions($request);
+        $options[CURLOPT_HEADERFUNCTION] = $headers;
+
+        if (!curl_setopt_array($handle, $options)) {
             throw new TransportException(sprintf('Could not configure cURL for %s %s.', $request->method, $request->url));
         }
 
@@ -59,7 +65,7 @@ final class CurlTransport implements Transport
 
         $status = curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
 
-        return new HttpResponse(is_int($status) ? $status : 0, $body);
+        return new HttpResponse(is_int($status) ? $status : 0, $body, $headers->all());
     }
 
     /**

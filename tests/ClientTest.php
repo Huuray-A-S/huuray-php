@@ -13,6 +13,9 @@ use Huuray\Exception\NotFoundException;
 use Huuray\Exception\ServerException;
 use Huuray\Exception\TimeoutException;
 use Huuray\Exception\ValidationException;
+use Huuray\Http\HttpRequest;
+use Huuray\Http\HttpResponse;
+use Huuray\Http\Transport;
 use Huuray\Http\TransportException;
 use Huuray\Http\TransportTimeoutException;
 use Huuray\HuurayClient;
@@ -748,6 +751,51 @@ final class ClientTest extends TestCase
         [$client] = TestClient::make(new MockResponse(text: "\xEF\xBB\xBF" . '{"Balances":[{"Currency":"DKK","Balance":1,"Master":true}]}'));
 
         self::assertSame('DKK', $client->balances->list()->balances[0]->currency);
+    }
+
+    // -------------------------------------------------------- response headers
+
+    public function testKeepsTheResponseHeadersAndLooksThemUpCaseInsensitively(): void
+    {
+        [$client] = TestClient::make(new MockResponse(status: 202, json: new \stdClass(), headers: ['Retry-After' => '30', 'content-type' => 'application/json']));
+
+        $response = $client->send('POST', '/v4/Search', ['RefID' => 'r']);
+
+        self::assertSame(202, $response->httpStatus);
+        self::assertSame(['Retry-After' => '30', 'content-type' => 'application/json'], $response->headers);
+        self::assertSame('30', $response->header('retry-after'));
+        self::assertSame('30', $response->header('RETRY-AFTER'));
+        self::assertSame('application/json', $response->header('Content-Type'));
+        self::assertNull($response->header('X-Absent'));
+    }
+
+    public function testStillWorksWithATransportThatReturnsNoHeaders(): void
+    {
+        // A custom transport written before the third HttpResponse argument existed.
+        $transport = new class implements Transport {
+            public function send(
+                #[\SensitiveParameter]
+                HttpRequest $request,
+            ): HttpResponse {
+                return new HttpResponse(200, '{"Balances":[{"Currency":"DKK","Balance":1,"Master":true}]}');
+            }
+        };
+        $client = new HuurayClient(apiToken: TestClient::TOKEN, apiSecret: TestClient::SECRET, transport: $transport);
+
+        self::assertSame('DKK', $client->balances->list()->balances[0]->currency);
+        self::assertSame([], $client->send('GET', '/v4/Balance')->headers);
+        self::assertNull($client->send('GET', '/v4/Balance')->header('Retry-After'));
+    }
+
+    public function testATransportResponseDumpsItsHeadersButNeverItsBody(): void
+    {
+        $response = new HttpResponse(202, '{"Documents":[{"Content":"JVBERi0xLjcK"}]}', ['Retry-After' => '30']);
+
+        $dump = print_r($response, true);
+
+        self::assertStringContainsString('[Retry-After] => 30', $dump);
+        self::assertStringContainsString('[42 bytes]', $dump);
+        self::assertStringNotContainsString('JVBERi0', $dump);
     }
 
     // -------------------------------------------------------- request() escape hatch

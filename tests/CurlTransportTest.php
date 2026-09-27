@@ -8,6 +8,7 @@ use Huuray\Http\CurlTransport;
 use Huuray\Http\HttpRequest;
 use Huuray\Http\TransportException;
 use Huuray\HuurayClient;
+use Huuray\Internal\ResponseHeaders;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -112,6 +113,61 @@ final class CurlTransportTest extends TestCase
         self::assertSame('https://api.huuray.com/v4/Balance', $options[CURLOPT_URL]);
     }
 
+    // -------------------------------------------------------- response headers
+
+    public function testCollectsTheResponseHeadersLowerCasedAndTrimmed(): void
+    {
+        $headers = self::collect([
+            "HTTP/1.1 202 Accepted\r\n",
+            "Content-Type: application/json; charset=utf-8\r\n",
+            "Retry-After:   30  \r\n",
+            "\r\n",
+        ]);
+
+        self::assertSame(['content-type' => 'application/json; charset=utf-8', 'retry-after' => '30'], $headers);
+    }
+
+    public function testKeepsOnlyTheLastResponsesHeaders(): void
+    {
+        // An interim 100 Continue, or a proxy's answer to CONNECT, comes first in the same exchange.
+        $headers = self::collect([
+            "HTTP/1.1 100 Continue\r\n",
+            "Retry-After: 5\r\n",
+            "\r\n",
+            "HTTP/2 200\r\n",
+            "content-type: application/json\r\n",
+            "\r\n",
+        ]);
+
+        self::assertSame(['content-type' => 'application/json'], $headers);
+    }
+
+    public function testJoinsARepeatedHeaderAndUnfoldsAFoldedOne(): void
+    {
+        $headers = self::collect([
+            "HTTP/1.1 200 OK\r\n",
+            "Vary: Accept\r\n",
+            "vary: Accept-Encoding\r\n",
+            "X-Folded: first\r\n",
+            " second\r\n",
+            "\r\n",
+        ]);
+
+        self::assertSame(['vary' => 'Accept, Accept-Encoding', 'x-folded' => 'first second'], $headers);
+    }
+
+    public function testTellsCurlEveryHeaderLineWasHandled(): void
+    {
+        // Any other return value makes cURL abort the transfer.
+        $handle = curl_init();
+        self::assertInstanceOf(\CurlHandle::class, $handle);
+        $collector = new ResponseHeaders();
+
+        foreach (["HTTP/1.1 200 OK\r\n", "Retry-After: 30\r\n", " folded\r\n", "no colon\r\n", "\r\n"] as $line) {
+            self::assertSame(strlen($line), $collector($handle, $line));
+        }
+    }
+
     private static function request(string $method, ?string $body, int $timeoutMs = 30_000): HttpRequest
     {
         return new HttpRequest(
@@ -121,6 +177,25 @@ final class CurlTransportTest extends TestCase
             $body,
             $timeoutMs,
         );
+    }
+
+    /**
+     * What the header collector keeps after cURL hands it these lines, in order.
+     *
+     * @param list<string> $lines
+     *
+     * @return array<string, string>
+     */
+    private static function collect(array $lines): array
+    {
+        $handle = curl_init();
+        self::assertInstanceOf(\CurlHandle::class, $handle);
+        $collector = new ResponseHeaders();
+        foreach ($lines as $line) {
+            $collector($handle, $line);
+        }
+
+        return $collector->all();
     }
 
     /**

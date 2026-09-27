@@ -78,7 +78,7 @@ final class FakeTransport implements Transport
             throw $next->throws;
         }
 
-        return new HttpResponse($next->status, $next->body());
+        return new HttpResponse($next->status, $next->body(), $next->headers);
     }
 
     /**

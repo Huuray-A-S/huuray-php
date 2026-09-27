@@ -21,7 +21,10 @@ namespace Huuray\Http;
  *    have been observed live to take longer than 30 seconds, so do not cap it
  *    lower than the value you are given.
  * 2. **Return every HTTP response as an {@see HttpResponse}**, whatever its
- *    status — 4xx and 5xx included. Do not throw for a status code.
+ *    status — 4xx and 5xx included. Do not throw for a status code. Pass the
+ *    response headers as its third argument, so the client can read
+ *    `Retry-After`; a transport that leaves them out still works, and the client
+ *    then sees no `Retry-After`.
  * 3. **Read the whole body before returning.** A connection that drops while the
  *    body is still arriving must surface as an exception from `send()`, so it is
  *    mapped by the same error handling as a failure to connect.

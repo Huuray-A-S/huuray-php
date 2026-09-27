@@ -8,18 +8,21 @@ namespace Huuray\Tests\Support;
 final readonly class MockResponse
 {
     /**
-     * @param int             $status HTTP status to answer with.
-     * @param mixed           $json   Encoded as the body. Null means `{"Status": <status>}`. Use
-     *                                `new \stdClass()` for an empty JSON object — `[]` encodes as a list.
-     * @param string|null     $text   Raw body; takes precedence over `$json`. Use to simulate garbled responses.
-     * @param \Throwable|null $throws Throw instead of answering: a connection failure before or
-     *                                during the body, or a timeout.
+     * @param int                   $status  HTTP status to answer with.
+     * @param mixed                 $json    Encoded as the body. Null means `{"Status": <status>}`. Use
+     *                                       `new \stdClass()` for an empty JSON object — `[]` encodes as a list.
+     * @param string|null           $text    Raw body; takes precedence over `$json`. Use to simulate garbled
+     *                                       responses.
+     * @param \Throwable|null       $throws  Throw instead of answering: a connection failure before or
+     *                                       during the body, or a timeout.
+     * @param array<string, string> $headers Response headers, e.g. `['Retry-After' => '30']`.
      */
     public function __construct(
         public int $status = 200,
         public mixed $json = null,
         public ?string $text = null,
         public ?\Throwable $throws = null,
+        public array $headers = [],
     ) {}
 
     public function body(): string

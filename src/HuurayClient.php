@@ -458,7 +458,7 @@ class HuurayClient
                     throw $lastError;
                 }
 
-                return new RawResponse($parsed, $status);
+                return new RawResponse($parsed, $status, $response->headers);
             }
 
             $lastError = ApiException::fromResponse($status, $readable ? $parsed : null, $method, $path);
