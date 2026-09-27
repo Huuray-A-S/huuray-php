@@ -602,7 +602,7 @@ final class PdfsTest extends TestCase
             self::assertSame(600_000, $e->timeoutMs);
         }
 
-        self::assertSame(PdfsResource::DEFAULT_MAX_WAIT_MS, 600_000);
+        self::assertSame(600_000, PdfsResource::DEFAULT_MAX_WAIT_MS);
         self::assertSame(array_fill(0, 20, 30), $clock->waits);
         self::assertCount(21, $transport->calls);
     }
