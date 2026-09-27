@@ -42,10 +42,15 @@ class PdfsResource extends AbstractResource
     private readonly \Closure $clock;
 
     /**
-     * @param (\Closure(int): void)|null $sleep Waits the given whole seconds. For the test suite; defaults to sleep(),
-     *                                          a day at a time.
-     * @param (\Closure(): float)|null   $clock Monotonic time in seconds, for the maxWaitMs deadline. For the test
-     *                                          suite; defaults to hrtime().
+     * The client builds this resource: use `$client->pdfs`.
+     *
+     * @internal `$sleep` and `$clock` are seams for the test suite, not part of the semver-stable surface: they may
+     *           change or go away in any release.
+     *
+     * @param (\Closure(int): void)|null $sleep Internal. Waits the given whole seconds; defaults to sleep(), a day at
+     *                                          a time.
+     * @param (\Closure(): float)|null   $clock Internal. Monotonic time in seconds, for the maxWaitMs deadline;
+     *                                          defaults to hrtime().
      */
     public function __construct(HuurayClient $client, ?\Closure $sleep = null, ?\Closure $clock = null)
     {
@@ -65,7 +70,8 @@ class PdfsResource extends AbstractResource
      * voucher, or one combined PDF. On HTTP 202 — the order is still in Huuray's
      * queue, or a supplier has not delivered a code yet — it is false, `documents` is
      * empty, and `retryAfter` says how many seconds to wait before asking again.
-     * `getWhenReady()` does that waiting for you.
+     * `getWhenReady()` does that waiting for you. Any 2xx other than 200 is treated
+     * like 202 (not ready); any non-2xx throws.
      *
      * The API token needs the Search permission. The API reference says only orders
      * with at most three receivers are supported, and rejects larger ones with a
@@ -110,7 +116,8 @@ class PdfsResource extends AbstractResource
      * TimeoutException quoting the API's last status message; the call is read-only,
      * so asking again later is safe.
      *
-     * Only "not ready" is waited for. Any error is thrown at once, as from `get()`.
+     * Any 2xx other than 200 is treated like 202 (not ready); any non-2xx ends the
+     * wait with an exception, thrown at once as from `get()`.
      *
      * @param int $maxWaitMs How long to keep asking, in milliseconds; 10 minutes by default. It bounds the waits
      *                       between requests: each request still has the client's `timeoutMs`.

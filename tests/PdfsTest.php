@@ -186,6 +186,38 @@ final class PdfsTest extends TestCase
         self::assertEquals(new PdfResult(ready: false, orderUid: self::ORDER_UID, documents: [], retryAfter: 30), $result);
     }
 
+    public function testMapsA200WithoutDocumentsToReadyWithAnEmptyList(): void
+    {
+        // Huuray's server answers 404 whenever there are no vouchers, but a 200 is what it is: ready.
+        [$pdfs] = self::pdfs(new MockResponse(json: self::ready([])));
+
+        self::assertEquals(new PdfResult(ready: true, orderUid: self::ORDER_UID, documents: [], retryAfter: null), $pdfs->get(orderUid: self::ORDER_UID));
+    }
+
+    /** @return iterable<string, array{int}> */
+    public static function successStatusesOtherThan200(): iterable
+    {
+        yield '201' => [201];
+        yield '203' => [203];
+        yield '206' => [206];
+        yield '299' => [299];
+    }
+
+    #[DataProvider('successStatusesOtherThan200')]
+    public function testTreatsAny2xxOtherThan200LikeA202(int $status): void
+    {
+        [$pdfs, , $clock] = self::pdfs([
+            new MockResponse(status: $status, json: self::pending(), headers: ['Retry-After' => '5']),
+            new MockResponse(status: $status, json: self::pending(), headers: ['Retry-After' => '5']),
+            new MockResponse(json: self::ready([self::document(5123401, self::PDF_A)])),
+        ]);
+
+        self::assertEquals(new PdfResult(ready: false, orderUid: self::ORDER_UID, documents: [], retryAfter: 5), $pdfs->get(orderUid: self::ORDER_UID));
+        // getWhenReady() waits it out like a 202.
+        self::assertSame(self::PDF_A, $pdfs->getWhenReady(orderUid: self::ORDER_UID)->documents[0]->content);
+        self::assertSame([5], $clock->waits);
+    }
+
     /** @return iterable<string, array{array<string, string>, ?int}> */
     public static function retryAfterHeaders(): iterable
     {

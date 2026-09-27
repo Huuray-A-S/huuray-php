@@ -25,15 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gift card PDFs of an order, as a `PdfResult` (`ready`, `orderUid`, `documents`,
   `retryAfter`) of `PdfDocument`s (`voucherIds`, `pdfTemplateUid`, `fileName`,
   `contentType`, and `content`: the PDF's bytes, decoded from base64). `ready` is
-  false on HTTP 202, when the PDFs are not ready yet, and `retryAfter` is the
-  `Retry-After` header in whole seconds. A read, so retried like `orders->search()`.
-  Content that is not valid base64 throws `ConnectionException`, like an unreadable
-  body, and is never quoted.
+  false on HTTP 202, when the PDFs are not ready yet, and on any 2xx other than 200;
+  `retryAfter` is the `Retry-After` header in whole seconds. A read, so retried like
+  `orders->search()`. Content that is not valid base64 throws `ConnectionException`,
+  like an unreadable body, and is never quoted.
 - `pdfs->getWhenReady(..., maxWaitMs = 600_000)`: asks again after `retryAfter`
   seconds (30 when the API names none, and never less than 1), each time as a newly
   signed request, until the PDFs are ready. Rather than wait past `maxWaitMs` it
   throws `TimeoutException`, whose message says it gave up waiting within
-  `maxWaitMs` and quotes the API's last status message.
+  `maxWaitMs` and quotes the API's last status message. Any 2xx other than 200 is
+  treated like 202 (not ready); any non-2xx ends the wait with an exception.
 
 ### Changed
 

@@ -19,7 +19,10 @@ final readonly class PdfResult
         /**
          * True on HTTP 200, when `documents` holds the PDFs. False on HTTP 202: the
          * order is still in Huuray's queue, or a supplier has not delivered a code
-         * yet, and `documents` is empty. Ask again after `retryAfter` seconds.
+         * yet, and `documents` is empty. Ask again after `retryAfter` seconds. Any
+         * other 2xx is treated like 202. A 200 without documents is still ready, with
+         * an empty `documents`, though Huuray's server never sends one: every case
+         * without vouchers is a 404.
          */
         public bool $ready,
         public ?string $orderUid,

@@ -161,7 +161,7 @@ foreach ($pdf->documents as $document) {
 }
 ```
 
-`pdfs->get()` asks once. Check `ready`: HTTP 202 means not ready yet — the order is still in Huuray's queue, or a supplier has not delivered a code — so `documents` is empty and `retryAfter` says how many seconds to wait. `pdfs->getWhenReady()` does the waiting for you, with a newly signed request each time, and throws `TimeoutException` rather than wait past `maxWaitMs` (10 minutes by default). Both also take `voucherId`, `pdfTemplateUid` and `combine`, for one PDF holding every voucher.
+`pdfs->get()` asks once. Check `ready`: HTTP 202 means not ready yet — the order is still in Huuray's queue, or a supplier has not delivered a code — so `documents` is empty and `retryAfter` says how many seconds to wait. `pdfs->getWhenReady()` does the waiting for you, at least a second apart and with a newly signed request each time, and throws `TimeoutException` rather than wait past `maxWaitMs` (10 minutes by default). Any 2xx other than 200 is treated like 202 (not ready); any non-2xx ends the wait with an exception. Both also take `voucherId` (one voucher), `pdfTemplateUid` (another PDF template) and `combine` (one PDF holding every voucher).
 
 **The PDF is a bearer instrument**: it shows the redeemable code, so whoever holds the file holds the gift card. Never log it, and keep it only as long as you need it; `var_dump()` and `print_r()` show only its size. The API token needs the **Search** permission. The API supports only orders with at most three receivers and rejects larger ones with a 422 — the API's rule, which the client does not check. A response can run to several megabytes.
 
