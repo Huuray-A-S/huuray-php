@@ -173,8 +173,12 @@ final class PdfsTest extends TestCase
     {
         [$pdfs] = self::pdfs([new MockResponse(json: ['Documents' => null]), new MockResponse(json: new \stdClass())]);
 
-        self::assertSame([], $pdfs->get(orderUid: self::ORDER_UID)->documents);
-        self::assertSame([], $pdfs->get(orderUid: self::ORDER_UID)->documents);
+        // Two separate answers: a null Documents list, then no Documents key at all.
+        $nullDocuments = $pdfs->get(orderUid: self::ORDER_UID);
+        $absentDocuments = $pdfs->get(orderUid: self::ORDER_UID);
+
+        self::assertSame([], $nullDocuments->documents);
+        self::assertSame([], $absentDocuments->documents);
     }
 
     public function testMapsA202ToNotReadyWithTheRetryAfterInWholeSeconds(): void
