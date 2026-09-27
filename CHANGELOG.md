@@ -53,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the client then sees no `Retry-After`, so `pdfs->getWhenReady()` waits 30
   seconds between asks. A header value that is not a string, such as a PSR-7 style
   list of values, reads as absent too.
+- `CurlTransport` collects the response body itself and hands it over, so its reused
+  cURL handle no longer keeps the last body, a gift card PDF included, until the next
+  request.
 - `Redact` treats `Content` / `content`, a gift card PDF, as a bearer value like
   `Code`, and `PdfDocument` dumps its content as `[N bytes]`.
 - The coverage gate counts eleven operations, and the request-conformance gate

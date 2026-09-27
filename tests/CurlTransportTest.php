@@ -8,6 +8,7 @@ use Huuray\Http\CurlTransport;
 use Huuray\Http\HttpRequest;
 use Huuray\Http\TransportException;
 use Huuray\HuurayClient;
+use Huuray\Internal\ResponseBody;
 use Huuray\Internal\ResponseHeaders;
 use Huuray\RawResponse;
 use PHPUnit\Framework\TestCase;
@@ -112,6 +113,33 @@ final class CurlTransportTest extends TestCase
         self::assertSame(2, $options[CURLOPT_SSL_VERIFYHOST]);
         self::assertSame(CURLPROTO_HTTP | CURLPROTO_HTTPS, $options[CURLOPT_PROTOCOLS]);
         self::assertSame('https://api.huuray.com/v4/Balance', $options[CURLOPT_URL]);
+    }
+
+    // ----------------------------------------------------------- response body
+
+    public function testLeavesTheBodyToItsOwnCollectorRatherThanTheReusedHandle(): void
+    {
+        // With CURLOPT_RETURNTRANSFER the handle keeps the last body, a gift card PDF
+        // included, until the next request. send() sets a ResponseBody instead.
+        $options = (new CurlTransport())->buildOptions(self::request('POST', '{"OrderUID":"uid"}'));
+
+        self::assertArrayNotHasKey(CURLOPT_RETURNTRANSFER, $options);
+        self::assertArrayNotHasKey(CURLOPT_WRITEFUNCTION, $options);
+    }
+
+    public function testTheBodyCollectorHandsTheBodyOverAndKeepsNothing(): void
+    {
+        $handle = curl_init();
+        self::assertInstanceOf(\CurlHandle::class, $handle);
+        $collector = new ResponseBody();
+
+        // Any other return value makes cURL abort the transfer.
+        foreach (["{\"Content\":\"JVBE", "Ri0x\x00\xFF\"}", ''] as $chunk) {
+            self::assertSame(strlen($chunk), $collector($handle, $chunk));
+        }
+
+        self::assertSame("{\"Content\":\"JVBERi0x\x00\xFF\"}", $collector->take());
+        self::assertSame('', $collector->take());
     }
 
     // -------------------------------------------------------- response headers

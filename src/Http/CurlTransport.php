@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Huuray\Http;
 
 use Huuray\Exception\ConfigurationException;
+use Huuray\Internal\ResponseBody;
 use Huuray\Internal\ResponseHeaders;
 
 /**
@@ -39,10 +40,12 @@ final class CurlTransport implements Transport
     ): HttpResponse {
         $handle = $this->handle();
 
-        // Set here rather than in buildOptions(): each exchange gets its own collector.
+        // Set here rather than in buildOptions(): each exchange gets its own collectors.
         $headers = new ResponseHeaders();
+        $body = new ResponseBody();
         $options = $this->buildOptions($request);
         $options[CURLOPT_HEADERFUNCTION] = $headers;
+        $options[CURLOPT_WRITEFUNCTION] = $body;
 
         if (!curl_setopt_array($handle, $options)) {
             throw new TransportException(sprintf('Could not configure cURL for %s %s.', $request->method, $request->url));
@@ -51,9 +54,13 @@ final class CurlTransport implements Transport
         // curl_exec reads the entire body before returning, so a connection that
         // drops mid-body fails right here, inside the same error handling as a
         // failure to connect.
-        $body = curl_exec($handle);
+        $completed = curl_exec($handle);
+        // Taken at once, whatever the outcome: the handle is reused and keeps its
+        // collectors until the next request, so this one must hold nothing of a
+        // body that can be a gift card PDF.
+        $text = $body->take();
 
-        if (!is_string($body)) {
+        if ($completed === false) {
             $errno = curl_errno($handle);
             $message = sprintf('cURL error %d: %s', $errno, curl_error($handle));
             if ($errno === CURLE_OPERATION_TIMEDOUT) {
@@ -65,7 +72,7 @@ final class CurlTransport implements Transport
 
         $status = curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
 
-        return new HttpResponse(is_int($status) ? $status : 0, $body, $headers->all());
+        return new HttpResponse(is_int($status) ? $status : 0, $text, $headers->all());
     }
 
     /**
@@ -93,7 +100,8 @@ final class CurlTransport implements Transport
         $options = [
             CURLOPT_URL => $request->url,
             CURLOPT_CUSTOMREQUEST => $request->method,
-            CURLOPT_RETURNTRANSFER => true,
+            // No CURLOPT_RETURNTRANSFER: send() collects the body itself, so the
+            // reused handle keeps no copy of it. See ResponseBody.
             CURLOPT_HEADER => false,
             // Never follow a redirect: it would carry the signed headers to
             // wherever the Location points.
