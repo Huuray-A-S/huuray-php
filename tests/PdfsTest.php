@@ -19,6 +19,7 @@ use Huuray\Http\Transport;
 use Huuray\Http\TransportException;
 use Huuray\Http\TransportTimeoutException;
 use Huuray\HuurayClient;
+use Huuray\Internal\Sleep;
 use Huuray\Redact;
 use Huuray\Resources\PdfsResource;
 use Huuray\Result\PdfDocument;
@@ -677,6 +678,41 @@ final class PdfsTest extends TestCase
         self::assertSame(600_000, PdfsResource::DEFAULT_MAX_WAIT_MS);
         self::assertSame(array_fill(0, 20, 30), $clock->waits);
         self::assertCount(21, $transport->calls);
+    }
+
+    public function testGetWhenReadySleepsADayAtATimeByDefault(): void
+    {
+        [$client] = TestClient::make(new MockResponse());
+        $sleep = (new \ReflectionProperty(PdfsResource::class, 'sleep'))->getValue(new PdfsResource($client));
+
+        self::assertInstanceOf(\Closure::class, $sleep);
+        $function = new \ReflectionFunction($sleep);
+        self::assertSame(Sleep::class . '::seconds', $function->getClosureScopeClass()?->getName() . '::' . $function->getName());
+    }
+
+    public function testSleepGoesADayAtATimeSoALongWaitNeverWrapsRound(): void
+    {
+        $waits = [];
+        $record = static function (int $seconds) use (&$waits): void {
+            $waits[] = $seconds;
+            if (count($waits) === 5) {
+                throw new \RuntimeException('Enough: the chunks are clear by now.');
+            }
+        };
+
+        Sleep::seconds(200_000, $record);
+        Sleep::seconds(0, $record);
+        Sleep::seconds(-5, $record);
+        self::assertSame([86_400, 86_400, 27_200], $waits);
+
+        // Far past what one sleep() call can take: still a day at a time.
+        $waits = [];
+        try {
+            Sleep::seconds(PHP_INT_MAX, $record);
+            self::fail('Expected the recorder to stop the wait.');
+        } catch (\RuntimeException) {
+        }
+        self::assertSame(array_fill(0, 5, 86_400), $waits);
     }
 
     /** @return iterable<string, array{list<MockResponse>, class-string<HuurayException>, list<int>}> */

@@ -10,6 +10,7 @@ use Huuray\Exception\NotFoundException;
 use Huuray\Exception\TimeoutException;
 use Huuray\Exception\ValidationException;
 use Huuray\HuurayClient;
+use Huuray\Internal\Sleep;
 use Huuray\Internal\Wire;
 use Huuray\Result\PdfDocument;
 use Huuray\Result\PdfResult;
@@ -41,16 +42,16 @@ class PdfsResource extends AbstractResource
     private readonly \Closure $clock;
 
     /**
-     * @param (\Closure(int): void)|null $sleep Waits the given whole seconds. For the test suite; defaults to sleep().
+     * @param (\Closure(int): void)|null $sleep Waits the given whole seconds. For the test suite; defaults to sleep(),
+     *                                          a day at a time.
      * @param (\Closure(): float)|null   $clock Monotonic time in seconds, for the maxWaitMs deadline. For the test
      *                                          suite; defaults to hrtime().
      */
     public function __construct(HuurayClient $client, ?\Closure $sleep = null, ?\Closure $clock = null)
     {
         parent::__construct($client);
-        $this->sleep = $sleep ?? static function (int $seconds): void {
-            sleep($seconds);
-        };
+        // A day at a time: one sleep() call wraps a long enough wait round to a short one.
+        $this->sleep = $sleep ?? Sleep::seconds(...);
         $this->clock = $clock ?? static fn(): float => hrtime(true) / 1e9;
     }
 
