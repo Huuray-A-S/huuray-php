@@ -328,7 +328,7 @@ Every exception this library throws extends `Huuray\Exception\HuurayException`. 
 |---|---|
 | `ConfigurationException` | missing or invalid client options |
 | `ConnectionException` | the request never reached the API, or its response was unreadable |
-| `TimeoutException` | the request exceeded `timeoutMs`, or `pdfs->getWhenReady()` gave up at `maxWaitMs` |
+| `TimeoutException` | the request exceeded `timeoutMs`, or `pdfs->getWhenReady()` gave up waiting for the PDF within `maxWaitMs` |
 | `AuthException` | 401 or 403 — see *Authentication* above |
 | `NotFoundException` | 404 — including "no results", see above |
 | `ValidationException` | 422 |

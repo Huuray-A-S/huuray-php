@@ -32,7 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pdfs->getWhenReady(..., maxWaitMs = 600_000)`: asks again after `retryAfter`
   seconds (30 when the API names none, and never less than 1), each time as a newly
   signed request, until the PDFs are ready. Rather than wait past `maxWaitMs` it
-  throws `TimeoutException`, quoting the API's last status message.
+  throws `TimeoutException`, whose message says it gave up waiting within
+  `maxWaitMs` and quotes the API's last status message.
 
 ### Changed
 
@@ -42,7 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `#[\SensitiveParameter]`.
 - A custom `Transport` receives an upload as an ordinary string body, with its
   multipart `Content-Type` header; it must send both exactly as given.
-- `TimeoutException` takes an optional trailing `$detail`, appended to its message.
+- `TimeoutException` takes an optional trailing `$detail`, appended to its message,
+  and `$lead`, which replaces its opening "timed out after" sentence.
 - The request-conformance gate validates a multipart/form-data body part by part, and
   fails closed on any multipart shape it does not understand.
 - `HttpResponse` takes an optional third argument, `$headers`, which `CurlTransport`

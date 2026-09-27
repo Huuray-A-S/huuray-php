@@ -141,13 +141,20 @@ class PdfsResource extends AbstractResource
             // sets off back-to-back signed requests.
             $wait = max(self::MIN_WAIT_SECONDS, $result->retryAfter ?? self::DEFAULT_RETRY_AFTER_SECONDS);
             if (($this->clock)() + $wait > $deadline) {
-                throw new TimeoutException('POST', '/v4/Pdf', $maxWaitMs, null, sprintf(
-                    'The gift card PDF was still not ready%s. Waiting another %d second%s would pass maxWaitMs, so '
-                    . 'getWhenReady() stopped asking; the call is read-only, so asking again later is safe.',
-                    $statusMessage !== null && $statusMessage !== '' ? ': "' . $statusMessage . '"' : '',
-                    $wait,
-                    $wait === 1 ? '' : 's',
-                ));
+                throw new TimeoutException(
+                    'POST',
+                    '/v4/Pdf',
+                    $maxWaitMs,
+                    detail: sprintf(
+                        'The gift card PDF was still not ready%s. Waiting another %d second%s would pass maxWaitMs, so '
+                        . 'getWhenReady() stopped asking; the call is read-only, so asking again later is safe.',
+                        $statusMessage !== null && $statusMessage !== '' ? ': "' . $statusMessage . '"' : '',
+                        $wait,
+                        $wait === 1 ? '' : 's',
+                    ),
+                    // Not "timed out after": the time that passed is less than maxWaitMs.
+                    lead: sprintf('POST /v4/Pdf gave up waiting for the gift card PDF within maxWaitMs (%d ms).', $maxWaitMs),
+                );
             }
 
             ($this->sleep)($wait);

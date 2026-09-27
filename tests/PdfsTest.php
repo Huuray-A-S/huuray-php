@@ -577,7 +577,8 @@ final class PdfsTest extends TestCase
             self::assertSame('/v4/Pdf', $e->path);
             self::assertNull($e->getPrevious());
             self::assertSame(
-                'POST /v4/Pdf timed out after 60000ms. The gift card PDF was still not ready: "The giftcard code is '
+                'POST /v4/Pdf gave up waiting for the gift card PDF within maxWaitMs (60000 ms). The gift card PDF '
+                . 'was still not ready: "The giftcard code is '
                 . 'not ready yet, retry in 30 seconds". Waiting another 30 seconds would pass maxWaitMs, so '
                 . 'getWhenReady() stopped asking; the call is read-only, so asking again later is safe.',
                 $e->getMessage(),
