@@ -28,6 +28,9 @@ class PdfsResource extends AbstractResource
     /** The wait after a 202 without a usable `Retry-After`, in seconds: the interval the API currently names. */
     public const DEFAULT_RETRY_AFTER_SECONDS = 30;
 
+    /** The shortest wait between two asks, in seconds, whatever `Retry-After` says. */
+    public const MIN_WAIT_SECONDS = 1;
+
     /** The standard base64 alphabet, RFC 4648 section 4. */
     private const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -100,10 +103,11 @@ class PdfsResource extends AbstractResource
      * Fetches the gift card PDFs of an order, waiting while the API says they are not ready.
      *
      * Calls `get()` and returns its result as soon as `ready` is true. Until then it
-     * waits the `retryAfter` seconds the API asked for — 30 when it named none — and
-     * asks again, each time as a newly signed request. It gives up rather than let
-     * the next wait pass `maxWaitMs`, and throws TimeoutException quoting the API's
-     * last status message; the call is read-only, so asking again later is safe.
+     * waits the `retryAfter` seconds the API asked for — 30 when it named none, and
+     * never less than 1 — and asks again, each time as a newly signed request. It
+     * gives up rather than let the next wait pass `maxWaitMs`, and throws
+     * TimeoutException quoting the API's last status message; the call is read-only,
+     * so asking again later is safe.
      *
      * Only "not ready" is waited for. Any error is thrown at once, as from `get()`.
      *
@@ -133,7 +137,9 @@ class PdfsResource extends AbstractResource
                 return $result;
             }
 
-            $wait = $result->retryAfter ?? self::DEFAULT_RETRY_AFTER_SECONDS;
+            // At least a second, so a `Retry-After: 0` from a server or proxy never
+            // sets off back-to-back signed requests.
+            $wait = max(self::MIN_WAIT_SECONDS, $result->retryAfter ?? self::DEFAULT_RETRY_AFTER_SECONDS);
             if (($this->clock)() + $wait > $deadline) {
                 throw new TimeoutException('POST', '/v4/Pdf', $maxWaitMs, null, sprintf(
                     'The gift card PDF was still not ready%s. Waiting another %d second%s would pass maxWaitMs, so '

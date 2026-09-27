@@ -30,9 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Content that is not valid base64 throws `ConnectionException`, like an unreadable
   body, and is never quoted.
 - `pdfs->getWhenReady(..., maxWaitMs = 600_000)`: asks again after `retryAfter`
-  seconds (30 when the API names none), each time as a newly signed request, until
-  the PDFs are ready. Rather than wait past `maxWaitMs` it throws `TimeoutException`,
-  quoting the API's last status message.
+  seconds (30 when the API names none, and never less than 1), each time as a newly
+  signed request, until the PDFs are ready. Rather than wait past `maxWaitMs` it
+  throws `TimeoutException`, quoting the API's last status message.
 
 ### Changed
 

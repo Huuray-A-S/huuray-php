@@ -531,13 +531,31 @@ final class PdfsTest extends TestCase
         self::assertSame([30], $clock->waits);
     }
 
-    public function testGetWhenReadyAsksAgainAtOnceWhenTheApiAsksForNoWait(): void
+    public function testGetWhenReadyWaitsASecondWhenTheApiAsksForNoWait(): void
     {
         [$pdfs, , $clock] = self::pdfs([self::notReady(retryAfter: '0'), new MockResponse(json: self::ready([]))]);
 
         $pdfs->getWhenReady(orderUid: self::ORDER_UID);
 
-        self::assertSame([0], $clock->waits);
+        // Never back to back: a Retry-After of 0 still gets the one-second floor.
+        self::assertSame([1], $clock->waits);
+    }
+
+    public function testGetWhenReadyGivesUpWhenEvenTheOneSecondFloorWouldPassMaxWait(): void
+    {
+        [$pdfs, $transport, $clock] = self::pdfs([self::notReady(retryAfter: '0'), self::notReady(retryAfter: '0')]);
+
+        try {
+            $pdfs->getWhenReady(orderUid: self::ORDER_UID, maxWaitMs: 1_500);
+            self::fail('Expected a TimeoutException.');
+        } catch (TimeoutException $e) {
+            self::assertSame(1_500, $e->timeoutMs);
+            self::assertStringContainsString('Waiting another 1 second would pass maxWaitMs', $e->getMessage());
+        }
+
+        // At 0 seconds a 1 s wait fitted in 1.5 s; at 1 second another did not.
+        self::assertSame([1], $clock->waits);
+        self::assertCount(2, $transport->calls);
     }
 
     public function testGetWhenReadyGivesUpBeforeTheNextWaitWouldPassMaxWaitQuotingTheLastStatusMessage(): void
