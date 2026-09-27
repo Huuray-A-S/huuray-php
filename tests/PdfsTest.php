@@ -201,6 +201,11 @@ final class PdfsTest extends TestCase
         yield 'an HTTP date' => [['Retry-After' => 'Wed, 21 Oct 2026 07:28:00 GMT'], null];
         yield 'repeated, so joined' => [['Retry-After' => '30, 30'], null];
         yield 'too large for an int, saturated' => [['Retry-After' => '99999999999999999999999'], PHP_INT_MAX];
+        yield 'one past PHP_INT_MAX, saturated' => [['Retry-After' => '9223372036854775808'], PHP_INT_MAX];
+        yield 'as many digits as PHP_INT_MAX, saturated without a cast' => [['Retry-After' => '1000000000000000000'], PHP_INT_MAX];
+        yield 'one digit fewer than PHP_INT_MAX, exact' => [['Retry-After' => '999999999999999999'], 999_999_999_999_999_999];
+        yield 'long only by its leading zeros, exact' => [['Retry-After' => '000000000000000000000000030'], 30];
+        yield 'only zeros' => [['Retry-After' => '00000000000000000000000000'], 0];
     }
 
     /** @param array<string, string> $headers */
@@ -617,6 +622,22 @@ final class PdfsTest extends TestCase
             self::fail('Expected a TimeoutException.');
         } catch (TimeoutException $e) {
             self::assertSame(0, $e->timeoutMs);
+        }
+
+        self::assertCount(1, $transport->calls);
+        self::assertSame([], $clock->waits);
+    }
+
+    public function testGetWhenReadyGivesUpAtOnceOnARetryAfterTooLargeForAnInt(): void
+    {
+        [$pdfs, $transport, $clock] = self::pdfs([self::notReady(retryAfter: '99999999999999999999999')]);
+
+        try {
+            $pdfs->getWhenReady(orderUid: self::ORDER_UID, maxWaitMs: PHP_INT_MAX);
+            self::fail('Expected a TimeoutException.');
+        } catch (TimeoutException $e) {
+            self::assertSame(PHP_INT_MAX, $e->timeoutMs);
+            self::assertStringContainsString('Waiting another ' . PHP_INT_MAX . ' seconds would pass maxWaitMs', $e->getMessage());
         }
 
         self::assertCount(1, $transport->calls);

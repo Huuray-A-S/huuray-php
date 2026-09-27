@@ -240,12 +240,20 @@ class PdfsResource extends AbstractResource
 
     /**
      * Whole seconds from a `Retry-After` value; null when absent, or not a whole number
-     * of seconds — an HTTP date included. A value too large for an int saturates.
+     * of seconds — an HTTP date included. A value with as many digits as PHP_INT_MAX,
+     * leading zeros aside, or more, reads as PHP_INT_MAX.
      */
     private static function seconds(?string $value): ?int
     {
         $value = $value === null ? '' : trim($value, " \t");
+        if (preg_match('/^[0-9]+$/D', $value) !== 1) {
+            return null;
+        }
 
-        return preg_match('/^[0-9]+$/D', $value) === 1 ? (int) $value : null;
+        // Counted rather than cast: PHP 8.5 warns when an (int) cast cannot represent
+        // the value. Any number with fewer digits than PHP_INT_MAX fits.
+        $digits = ltrim($value, '0');
+
+        return strlen($digits) >= strlen((string) PHP_INT_MAX) ? PHP_INT_MAX : (int) $digits;
     }
 }
