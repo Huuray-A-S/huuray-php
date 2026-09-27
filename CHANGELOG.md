@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `additionalReference`, `customerReference`, `articleNumber`, `description` and
   `purchaseOrderFileToken` (the token from `uploads->create()`). Sent verbatim, and
   omitted when null.
+- `pdfs->get(orderUid, voucherId, pdfTemplateUid, combine)` for `POST /v4/Pdf`: the
+  gift card PDFs of an order, as a `PdfResult` (`ready`, `orderUid`, `documents`,
+  `retryAfter`) of `PdfDocument`s (`voucherIds`, `pdfTemplateUid`, `fileName`,
+  `contentType`, and `content`: the PDF's bytes, decoded from base64). `ready` is
+  false on HTTP 202, when the PDFs are not ready yet, and `retryAfter` is the
+  `Retry-After` header in whole seconds. A read, so retried like `orders->search()`.
+  Content that is not valid base64 throws `ConnectionException`, like an unreadable
+  body, and is never quoted.
+- `pdfs->getWhenReady(..., maxWaitMs = 600_000)`: asks again after `retryAfter`
+  seconds (30 when the API names none), each time as a newly signed request, until
+  the PDFs are ready. Rather than wait past `maxWaitMs` it throws `TimeoutException`,
+  quoting the API's last status message.
 
 ### Changed
 
@@ -33,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TimeoutException` takes an optional trailing `$detail`, appended to its message.
 - The request-conformance gate validates a multipart/form-data body part by part, and
   fails closed on any multipart shape it does not understand.
+- `HttpResponse` takes an optional third argument, `$headers`, which `CurlTransport`
+  now fills, so the client can read `Retry-After`. It defaults to `[]`: a custom
+  `Transport` that builds `new HttpResponse($status, $body)` keeps working unchanged,
+  and the client then sees no `Retry-After`, so `pdfs->getWhenReady()` waits 30
+  seconds between asks.
+- `Redact` treats `Content` / `content`, a gift card PDF, as a bearer value like
+  `Code`, and `PdfDocument` dumps its content as `[N bytes]`.
+- The coverage gate counts eleven operations, and the request-conformance gate
+  validates `PdfRequest` bodies.
 
 ### What the API was confirmed to do
 
