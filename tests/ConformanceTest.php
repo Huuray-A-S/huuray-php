@@ -44,6 +44,9 @@ final class ConformanceTest extends TestCase
         ...self::INVOICE_PARAMETERS,
     ];
 
+    /** What pdfs->get() and pdfs->getWhenReady() both take, in PdfRequest's order. */
+    private const PDF_PARAMETERS = ['orderUid', 'voucherId', 'pdfTemplateUid', 'combine'];
+
     /** The invoice fields every order method takes, last and in the specification's order. */
     private const INVOICE_PARAMETERS = [
         'additionalReference', 'customerReference', 'articleNumber', 'description', 'purchaseOrderFileToken',
@@ -82,6 +85,10 @@ final class ConformanceTest extends TestCase
             'sendReward' => self::SEND_REWARD_PARAMETERS,
         ],
         'UploadsResource' => ['create' => ['file', 'fileName', 'contentType']],
+        'PdfsResource' => [
+            'get' => self::PDF_PARAMETERS,
+            'getWhenReady' => [...self::PDF_PARAMETERS, 'maxWaitMs'],
+        ],
         'HuurayClient' => ['sendReward' => self::SEND_REWARD_PARAMETERS],
     ];
 
@@ -92,7 +99,7 @@ final class ConformanceTest extends TestCase
      */
     private const ESCAPE_HATCHES = [
         'request' => ['method', 'path', 'body', 'query', 'retryable'],
-        'send' => ['method', 'path', 'body', 'query', 'retryable'],
+        'send' => ['method', 'path', 'body', 'query', 'retryable', 'read'],
     ];
 
     /** Delimits the hand-built multipart bodies the gate's self-tests feed it. */
@@ -150,9 +157,9 @@ final class ConformanceTest extends TestCase
         self::assertSame([], $missing);
     }
 
-    public function testCoversExactlyTheTenV4OperationsNoMoreNoFewer(): void
+    public function testCoversExactlyTheElevenV4OperationsNoMoreNoFewer(): void
     {
-        self::assertCount(10, self::spec()->operations());
+        self::assertCount(11, self::spec()->operations());
     }
 
     public function testTheSpecIsStillV4ThisClientTargetsV4Only(): void
@@ -229,6 +236,25 @@ final class ConformanceTest extends TestCase
         self::assertSame(['multipart/form-data'], array_keys(self::spec()->requestContent('POST', '/v4/Upload')));
     }
 
+    public function testSendsEveryPdfRequestFieldToPostV4Pdf(): void
+    {
+        // The gate above validates only the fields a request carried; this pins that
+        // the harness sent all four, Combine both ways, against the required OrderUID.
+        $pdfs = array_values(array_filter(self::calls(), static fn(CapturedRequest $call): bool => $call->path === '/v4/Pdf'));
+
+        self::assertCount(2, $pdfs);
+        self::assertSame(
+            ['OrderUID' => 'uid', 'VoucherID' => 7, 'PDFTemplateUid' => '00000000-0000-4000-8000-00000000c005', 'Combine' => true],
+            $pdfs[0]->body,
+        );
+        self::assertSame(
+            ['OrderUID' => 'uid', 'VoucherID' => 8, 'PDFTemplateUid' => '00000000-0000-4000-8000-00000000c006', 'Combine' => false],
+            $pdfs[1]->body,
+        );
+        self::assertSame(['application/json'], array_keys(self::spec()->requestContent('POST', '/v4/Pdf')));
+        self::assertSame(['OrderUID'], self::spec()->schema('PdfRequest')['required'] ?? null);
+    }
+
     // ----------------------------------------- the harness stays linked to the surface
 
     public function testEveryPublicResourceMethodAndItsParametersAreOnTheInventory(): void
@@ -242,6 +268,7 @@ final class ConformanceTest extends TestCase
             $client->exchangeRates,
             $client->orders,
             $client->uploads,
+            $client->pdfs,
         ];
 
         $actual = [];
@@ -355,6 +382,26 @@ final class ConformanceTest extends TestCase
         $errors = self::spec()->validate(self::spec()->schema('CancelRequest'), new \stdClass());
 
         self::assertMatchesRegularExpression('/OrderUID.*required/', implode("\n", $errors));
+    }
+
+    public function testFlagsAPdfRequestWithoutItsRequiredOrderUid(): void
+    {
+        $errors = self::spec()->validate(self::spec()->schema('PdfRequest'), (object) ['VoucherID' => 7, 'Combine' => true]);
+
+        self::assertSame(['$.OrderUID: required by the spec but not sent'], $errors);
+    }
+
+    public function testFlagsAnUndocumentedPropertyOrAWrongTypeInAPdfRequest(): void
+    {
+        $schema = self::spec()->schema('PdfRequest');
+
+        self::assertSame([], self::spec()->validate($schema, (object) ['OrderUID' => 'uid', 'VoucherID' => 7, 'PDFTemplateUid' => 'x', 'Combine' => false]));
+        self::assertSame(
+            ['$.VoucherIDs: not defined in the spec — the SDK must not send undocumented fields'],
+            self::spec()->validate($schema, (object) ['OrderUID' => 'uid', 'VoucherIDs' => [7]]),
+        );
+        self::assertMatchesRegularExpression('/^\$\.VoucherID: expected integer/', implode("\n", self::spec()->validate($schema, (object) ['OrderUID' => 'uid', 'VoucherID' => '7'])));
+        self::assertMatchesRegularExpression('/^\$\.Combine: expected boolean/', implode("\n", self::spec()->validate($schema, (object) ['OrderUID' => 'uid', 'Combine' => 'true'])));
     }
 
     public function testFlagsAWrongTypeOnDeliveryPdfTemplateUid(): void
@@ -747,6 +794,16 @@ final class ConformanceTest extends TestCase
         $client->orders->cancel(orderUid: 'uid', voucherId: 7);
 
         $client->uploads->create(file: "%PDF-1.7\r\n%\xE2\xE3\xCF\xD3\r\n", fileName: 'purchase-order-4711.pdf', contentType: 'application/pdf');
+
+        $client->pdfs->get(orderUid: 'uid', voucherId: 7, pdfTemplateUid: '00000000-0000-4000-8000-00000000c005', combine: true);
+        // The harness answers 200, so this returns at once, without waiting or asking twice.
+        $client->pdfs->getWhenReady(
+            orderUid: 'uid',
+            voucherId: 8,
+            pdfTemplateUid: '00000000-0000-4000-8000-00000000c006',
+            combine: false,
+            maxWaitMs: 60_000,
+        );
     }
 
     /** @return list<CapturedRequest> */

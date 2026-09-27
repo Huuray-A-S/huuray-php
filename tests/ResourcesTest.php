@@ -298,6 +298,7 @@ final class ResourcesTest extends TestCase
             'stock' => static fn(HuurayClient $client): object => $client->stock->check(productToken: 'tok'),
             'exchangeRates' => static fn(HuurayClient $client): object => $client->exchangeRates->get(from: 'EUR', to: 'DKK'),
             'search' => static fn(HuurayClient $client): object => $client->orders->search(refId: 'r'),
+            'pdfs' => static fn(HuurayClient $client): object => $client->pdfs->get(orderUid: 'uid'),
         ];
 
         foreach ($reads as $name => $read) {

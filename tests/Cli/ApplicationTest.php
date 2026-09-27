@@ -199,6 +199,25 @@ final class ApplicationTest extends TestCase
         self::assertStringContainsString('Unknown command', $run['stderr']);
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function giftCardPdfCommands(): iterable
+    {
+        foreach (['pdf', 'pdfs', 'get-pdf'] as $command) {
+            yield $command => [$command];
+        }
+    }
+
+    #[DataProvider('giftCardPdfCommands')]
+    public function testOffersNoCommandThatFetchesAGiftCardPdf(string $command): void
+    {
+        // A gift card PDF shows the redeemable code: it does not belong on a terminal.
+        $run = $this->runCli([$command, '--order-uid', 'uid'], new MockResponse());
+
+        self::assertSame(1, $run['code']);
+        self::assertCount(0, $run['calls']);
+        self::assertStringContainsString('Unknown command', $run['stderr']);
+    }
+
     public function testReportsABadFlagAsAnErrorWithoutSendingAnything(): void
     {
         $run = $this->runCli(['search', '--ref-id', '--json'], new MockResponse());

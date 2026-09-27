@@ -8,8 +8,9 @@ namespace Huuray;
  * Retry knobs for read operations. Defaults are deliberately conservative.
  *
  * Retries only ever apply to operations that are safe to repeat: Balance,
- * Catalogue, Template, Stock, ExchangeRates and Search. Order, Resend and Cancel
- * are never retried, whatever is configured here — the API has no idempotency key.
+ * Catalogue, Template, Stock, ExchangeRates, Search and Pdf. Order, Resend and
+ * Cancel are never retried, whatever is configured here — the API has no
+ * idempotency key.
  *
  * Any value left unset (or passed as null) falls back to its default; it never
  * disables retrying. A negative value is clamped to zero.

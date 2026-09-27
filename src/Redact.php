@@ -21,9 +21,9 @@ final class Redact
      *
      * Both the wire spelling (`Code`) and the mapped spelling (`code`,
      * `redeemLink`) are listed, so a redacted result object is as safe as a
-     * redacted response body.
+     * redacted response body. `Content` is a gift card PDF, which shows the code.
      */
-    public const SECRET_FIELDS = ['Code', 'CVV', 'RedeemLink', 'code', 'cvv', 'redeemLink'];
+    public const SECRET_FIELDS = ['Code', 'CVV', 'RedeemLink', 'Content', 'code', 'cvv', 'redeemLink', 'content'];
 
     /** Fields carrying credentials or personal data, masked in any diagnostic output. */
     public const SENSITIVE_FIELDS = [

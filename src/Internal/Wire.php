@@ -213,6 +213,33 @@ final class Wire
         return $rows;
     }
 
+    /**
+     * A list of integers, such as `VoucherIDs`. Null or absent means none; an entry
+     * that is not an integer is left out, read as {@see self::int()} reads one.
+     *
+     * @return list<int>
+     */
+    public static function ints(
+        #[\SensitiveParameter]
+        mixed $data,
+        string $key,
+    ): array {
+        $value = self::field($data, $key);
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $ints = [];
+        foreach ($value as $item) {
+            $int = self::int(['item' => $item], 'item');
+            if ($int !== null) {
+                $ints[] = $int;
+            }
+        }
+
+        return $ints;
+    }
+
     /** A rejected argument, for an error message: the value for a scalar, the type otherwise. */
     private static function describe(mixed $value): string
     {

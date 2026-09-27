@@ -57,6 +57,19 @@ final class RedactTest extends TestCase
         self::assertSame(['ID' => 42, 'Expires' => '2027-01-01', 'Code' => Redact::BEARER_MARKER], $out);
     }
 
+    public function testRemovesTheContentOfAGiftCardPdfItShowsTheCode(): void
+    {
+        $out = Redact::redact([
+            'Documents' => [['VoucherIDs' => [1], 'Content' => 'JVBERi0xLjcK', 'ContentType' => 'application/pdf']],
+            'documents' => [['voucherIds' => [1], 'content' => "%PDF-1.7\n\x00\xFF"]],
+        ]);
+
+        self::assertSame([
+            'Documents' => [['VoucherIDs' => [1], 'Content' => Redact::BEARER_MARKER, 'ContentType' => 'application/pdf']],
+            'documents' => [['voucherIds' => [1], 'content' => Redact::BEARER_MARKER]],
+        ], $out);
+    }
+
     public function testMasksPersonalDataWithoutDestroyingItEntirely(): void
     {
         $out = Redact::redact(['Email' => 'jane@example.com']);

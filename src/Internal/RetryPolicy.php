@@ -17,13 +17,13 @@ use Huuray\RetryOptions;
  * Because of that, retries are **opt-in per operation**, never inferred from the
  * HTTP method. Each resource method declares whether it is safe to repeat:
  *
- *   retryable    Balance, ExchangeRates, Catalogue, Template, Stock, Search
+ *   retryable    Balance, ExchangeRates, Catalogue, Template, Stock, Search, Pdf
  *   never        Order, Resend, Cancel, Upload
  *
  * Upload moves no value, but a retried upload stores the file a second time,
  * and each stored upload holds one of the account's pending upload slots.
  *
- * Four of the retryable operations are POSTs. They are POSTs because they take a
+ * Five of the retryable operations are POSTs. They are POSTs because they take a
  * request body, not because they change anything.
  *
  * @internal

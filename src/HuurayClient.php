@@ -20,6 +20,7 @@ use Huuray\Resources\BalancesResource;
 use Huuray\Resources\CatalogueResource;
 use Huuray\Resources\ExchangeRatesResource;
 use Huuray\Resources\OrdersResource;
+use Huuray\Resources\PdfsResource;
 use Huuray\Resources\StockResource;
 use Huuray\Resources\TemplatesResource;
 use Huuray\Resources\UploadsResource;
@@ -57,6 +58,7 @@ class HuurayClient
     public readonly ExchangeRatesResource $exchangeRates;
     public readonly OrdersResource $orders;
     public readonly UploadsResource $uploads;
+    public readonly PdfsResource $pdfs;
 
     private readonly string $apiToken;
     private readonly string $apiSecret;
@@ -180,6 +182,7 @@ class HuurayClient
         $this->exchangeRates = new ExchangeRatesResource($this);
         $this->orders = new OrdersResource($this);
         $this->uploads = new UploadsResource($this);
+        $this->pdfs = new PdfsResource($this);
     }
 
     /**
@@ -286,16 +289,21 @@ class HuurayClient
     }
 
     /**
-     * Signs and sends one request, returning the decoded body and the HTTP status.
+     * Signs and sends one request, returning the decoded body, the HTTP status and the response headers.
      *
      * Retries are **opt-in per operation** — never inferred from the HTTP method,
-     * because four read-only v4 endpoints are POSTs and two value-moving ones are too.
+     * because five read-only v4 endpoints are POSTs and two value-moving ones are too.
      *
      * @internal Not part of the semver-stable surface; use {@see self::request()}.
      *
      * @param mixed                          $body  JSON request body, or a MultipartBody, sent as built. Null sends
      *                                              no body at all.
      * @param array<string, string|int|null> $query Query string parameters. Null values are dropped.
+     * @param (\Closure(mixed): mixed)|null  $read  Turns the decoded body of a 2xx response into what
+     *                                              RawResponse::$data holds. When the body cannot be used it throws
+     *                                              \UnexpectedValueException, whose message quotes nothing from the
+     *                                              body; that is handled exactly as a body that is not JSON: a
+     *                                              ConnectionException, retried when the request is retryable.
      *
      * @throws \InvalidArgumentException before any request, for a method that is not an HTTP token, a path that does
      *                                   not start with "/" or holds anything but visible ASCII, a body that cannot
@@ -311,6 +319,7 @@ class HuurayClient
         #[\SensitiveParameter]
         array $query = [],
         bool $retryable = false,
+        ?\Closure $read = null,
     ): RawResponse {
         // The method goes into the request line as given, and the path is appended
         // to the base URL: a line break in either injects headers or smuggles a
@@ -437,7 +446,16 @@ class HuurayClient
                 // empty result would make orders->search() report "order absent"
                 // after a garbled response, and the documented reconciliation flow
                 // would re-order. The body is never quoted: it could hold voucher codes.
-                if (!$readable) {
+                $unreadable = $readable ? null : ($text === '' ? 'empty' : 'not valid JSON');
+                if ($unreadable === null && $read !== null) {
+                    try {
+                        $parsed = $read($parsed);
+                    } catch (\UnexpectedValueException $e) {
+                        // Not chained: the reader's frames hold the body.
+                        $unreadable = $e->getMessage();
+                    }
+                }
+                if ($unreadable !== null) {
                     $lastError = new ConnectionException(
                         sprintf(
                             '%s %s returned HTTP %d but the body was %s (%d bytes). '
@@ -445,7 +463,7 @@ class HuurayClient
                             $method,
                             $path,
                             $status,
-                            $text === '' ? 'empty' : 'not valid JSON',
+                            $unreadable,
                             strlen($response->body),
                         ),
                         $method,
