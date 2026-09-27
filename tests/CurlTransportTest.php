@@ -9,6 +9,7 @@ use Huuray\Http\HttpRequest;
 use Huuray\Http\TransportException;
 use Huuray\HuurayClient;
 use Huuray\Internal\ResponseHeaders;
+use Huuray\RawResponse;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -154,6 +155,16 @@ final class CurlTransportTest extends TestCase
         ]);
 
         self::assertSame(['vary' => 'Accept, Accept-Encoding', 'x-folded' => 'first second'], $headers);
+    }
+
+    public function testAHeaderWhoseNameIsOnlyDigitsDoesNotStopTheClientReadingTheOthers(): void
+    {
+        $headers = self::collect(["HTTP/1.1 202 Accepted\r\n", "1: x\r\n", "Retry-After: 30\r\n", "\r\n"]);
+
+        // PHP keys the name "1" as an int.
+        self::assertSame([1 => 'x', 'retry-after' => '30'], $headers);
+        self::assertSame('30', (new RawResponse(null, 202, $headers))->header('Retry-After'));
+        self::assertSame('x', (new RawResponse(null, 202, $headers))->header('1'));
     }
 
     public function testTellsCurlEveryHeaderLineWasHandled(): void

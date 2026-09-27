@@ -14,7 +14,9 @@ namespace Huuray;
 final readonly class RawResponse
 {
     /**
-     * @param array<string, string> $headers The response headers, as the transport returned them.
+     * @param array<array-key, mixed> $headers The response headers, as the transport returned them: name => value.
+     *                                         Not trusted to match that: a name of digits only, such as `1`, is an
+     *                                         int key in a PHP array, and a custom transport may pass anything.
      */
     public function __construct(
         public mixed $data,
@@ -22,12 +24,15 @@ final readonly class RawResponse
         public array $headers = [],
     ) {}
 
-    /** The value of a response header, looked up case-insensitively; null when the response did not carry it. */
+    /**
+     * The value of a response header, looked up case-insensitively; null when the response did not carry it, or
+     * carried something other than a string, such as a PSR-7 style list of values.
+     */
     public function header(string $name): ?string
     {
         foreach ($this->headers as $key => $value) {
-            if (strcasecmp($key, $name) === 0) {
-                return $value;
+            if (strcasecmp((string) $key, $name) === 0) {
+                return is_string($value) ? $value : null;
             }
         }
 

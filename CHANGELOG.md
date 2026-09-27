@@ -49,7 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now fills, so the client can read `Retry-After`. It defaults to `[]`: a custom
   `Transport` that builds `new HttpResponse($status, $body)` keeps working unchanged,
   and the client then sees no `Retry-After`, so `pdfs->getWhenReady()` waits 30
-  seconds between asks.
+  seconds between asks. A header value that is not a string, such as a PSR-7 style
+  list of values, reads as absent too.
 - `Redact` treats `Content` / `content`, a gift card PDF, as a bearer value like
   `Code`, and `PdfDocument` dumps its content as `[N bytes]`.
 - The coverage gate counts eleven operations, and the request-conformance gate

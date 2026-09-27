@@ -44,7 +44,11 @@ final class ResponseHeaders
         return strlen($line);
     }
 
-    /** @return array<string, string> Lower-cased header name => value, for the last response cURL saw. */
+    /**
+     * @return array<string, string> Lower-cased header name => value, for the last response cURL saw. A name of
+     *                               digits only, such as `1`, is an int key, as PHP stores such a key;
+     *                               `RawResponse::header()` allows for that.
+     */
     public function all(): array
     {
         return $this->headers;

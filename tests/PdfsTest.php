@@ -212,6 +212,38 @@ final class PdfsTest extends TestCase
         self::assertSame($expected, $pdfs->get(orderUid: self::ORDER_UID)->retryAfter);
     }
 
+    public function testReadsTheResultPastAHeaderWhoseNameIsOnlyDigits(): void
+    {
+        // PHP stores the name "1" as the int key 1. Under strict_types, a lookup that
+        // handed that key to a string function threw a TypeError on every call, even a 200.
+        $headers = ['1' => 'x', 'Retry-After' => '30'];
+        [$pdfs] = self::pdfs([
+            // @phpstan-ignore argument.type (a header named "1", which PHP keys as an int, is the case under test)
+            new MockResponse(status: 202, json: self::pending(), headers: $headers),
+            // @phpstan-ignore argument.type (a header named "1", which PHP keys as an int, is the case under test)
+            new MockResponse(json: self::ready([self::document(5123401, self::PDF_A)]), headers: $headers),
+        ]);
+
+        self::assertSame(30, $pdfs->get(orderUid: self::ORDER_UID)->retryAfter);
+        self::assertSame(self::PDF_A, $pdfs->get(orderUid: self::ORDER_UID)->documents[0]->content);
+    }
+
+    public function testReadsAHeaderValueThatIsNotAStringAsAbsent(): void
+    {
+        // A custom transport may pass PSR-7 style lists of values, against the Transport contract.
+        [$pdfs] = self::pdfs([
+            // @phpstan-ignore argument.type (deliberately wrong, as an untyped custom transport might pass)
+            new MockResponse(status: 202, json: self::pending(), headers: ['Retry-After' => ['30']]),
+            // @phpstan-ignore argument.type (deliberately wrong, as an untyped custom transport might pass)
+            new MockResponse(json: self::ready([self::document(5123401, self::PDF_A)]), headers: ['Retry-After' => 30]),
+        ]);
+
+        $notReady = $pdfs->get(orderUid: self::ORDER_UID);
+        self::assertFalse($notReady->ready);
+        self::assertNull($notReady->retryAfter);
+        self::assertSame(self::PDF_A, $pdfs->get(orderUid: self::ORDER_UID)->documents[0]->content);
+    }
+
     // ------------------------------------------------------ a garbled document
 
     /** @return iterable<string, array{string}> */
