@@ -206,6 +206,9 @@ class HuurayClient
      * Delivery is handled by Huuray using the template you name, so no voucher
      * codes come back; use `orders->search()` to look the order up later.
      *
+     * `templateId` is always required here. For a physical product ordered with
+     * only a PDF template, use `orders->create()` or `orders->createSync()`.
+     *
      * `refId` is required by this SDK even though the API treats it as optional:
      * without it there is no way to find out whether an order landed after a
      * timeout. See {@see IndeterminateOrderException}.

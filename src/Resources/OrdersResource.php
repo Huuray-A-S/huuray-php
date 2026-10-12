@@ -237,6 +237,9 @@ class OrdersResource extends AbstractResource
      *
      * Performs exactly one `POST /v4/Order` with `Sync: false` and `Quantity: 1`.
      *
+     * `templateId` is always required here. For a physical product ordered with
+     * only a PDF template, use {@see self::create()} or {@see self::createSync()}.
+     *
      * `refId` is required here even though the API treats it as optional, and is
      * never generated for you: a generated key is not in your system, so it could
      * not be used to reconcile an order whose outcome is unknown.
