@@ -10,7 +10,7 @@ declare(strict_types=1);
  *
  * Run by .github/workflows/spec-drift.yml on a schedule. If the download differs
  * from the committed copy, the workflow runs the conformance gates against it
- * and opens a pull request — that PR is the early warning that the API changed
+ * and opens an issue: that issue is the early warning that the API changed
  * under us.
  *
  * The file is written with exactly the bytes the Node client's fetch script

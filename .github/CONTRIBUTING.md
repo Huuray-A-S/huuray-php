@@ -53,7 +53,7 @@ The validator deliberately **fails closed**. A schema shape it does not understa
 
 ## The vendored specification
 
-`openapi/huuray-v4.json` is committed on purpose, byte-identical to the copy in the other Huuray clients. A scheduled workflow re-downloads it weekly and flags any change: it opens a pull request when a `SPEC_DRIFT_TOKEN` secret is configured, and otherwise the run fails. That is how we find out about API changes. Review every one of those changes — do not merge on green alone.
+`openapi/huuray-v4.json` is committed on purpose, byte-identical to the copy in the other Huuray clients. A scheduled workflow re-downloads it weekly and, when it changed, opens an issue with the diff and the result of the suite against the new spec. That is how we find out about API changes. Read every one of those issues before syncing the spec.
 
 ## Tests
 
