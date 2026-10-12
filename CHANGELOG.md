@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `orders->create()` and `orders->createSync()` no longer reject a `pdfTemplateUid`
+  without a `templateId`: the order is sent as is, with `DeliveryPDFTemplateUid` and
+  no `DeliveryTemplateId`. The specification now says that for a physical product
+  (delivered by post only) the PDF template is the one the gift cards are printed
+  with, and `DeliveryTemplateId` is not required. `recipients` are still required
+  only when `templateId` is set.
 - `Redact` masks `FileName` and `CustomerReference`, and reads this SDK's own objects
   the way `var_dump()` shows them, so a redacted `HttpRequest` shows its body's size,
   never the body. `file`, `fileName` and `customerReference` are
@@ -107,9 +113,10 @@ Python and .NET clients.
   `pdfTemplates` (`PdfTemplate`: `uid`, `name`, `type`, `language`, `country`,
   `brandName`) alongside `templates`. `orders->create()`, `orders->createSync()`
   and `sendReward()` accept an optional `pdfTemplateUid`, sent as
-  `DeliveryPDFTemplateUid` and omitted when not supplied. It is rejected before any
-  request unless `templateId` is also set; the API requires that template to be an
-  email template.
+  `DeliveryPDFTemplateUid` and omitted when not supplied. For email delivery it is
+  attached as a document to the emails sent by `templateId`, which must then be an
+  email template. For a physical product (delivered by post only) it is the
+  template the gift cards are printed with, and `templateId` is not required.
 - `request()` — an escape hatch that signs any call.
 - Read-only CLI, `vendor/bin/huuray`: `balance`, `catalogue`, `templates`, `stock`,
   `rates`, `search`. `templates` lists PDF templates as well as delivery templates,

@@ -201,11 +201,13 @@ class HuurayClient
      *
      * @param int $value                Denomination **in minor units** — 50.00 is `5000`. Any float or bool is
      *                                  rejected.
-     * @param string|null $pdfTemplateUid PDF template uid from `templates->list()->pdfTemplates`, attached as a
-     *                                  document to the email. The template must be available for the ordered
-     *                                  product's brand and country (null on the template means any); otherwise
-     *                                  the API rejects the order with a 422, thrown as ValidationException. This
-     *                                  client does not pre-check that.
+     * @param string|null $pdfTemplateUid PDF template uid from `templates->list()->pdfTemplates`. For email delivery
+     *                                  it is attached as a document to the email, and `templateId` must then be
+     *                                  an email template. For a physical product (delivered by post only) it is
+     *                                  the template the gift cards are printed with. The template must be
+     *                                  available for the ordered product's brand and country (null on the
+     *                                  template means any); otherwise the API rejects the order with a 422,
+     *                                  thrown as ValidationException. This client pre-checks none of that.
      *
      * @throws \InvalidArgumentException  before any request, for an invalid argument
      * @throws IndeterminateOrderException when the outcome is unknown — do not retry

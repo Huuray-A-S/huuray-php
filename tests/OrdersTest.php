@@ -460,28 +460,47 @@ final class OrdersTest extends TestCase
     }
 
     #[DataProvider('createMethods')]
-    public function testRejectsPdfTemplateUidWithoutTemplateIdBeforeAnyHttpRequest(string $method): void
+    public function testSendsPdfTemplateUidWithoutTemplateIdAsIs(string $method): void
     {
+        // The specification allows it: for a physical product (delivered by post only) the PDF template
+        // is the one the gift cards are printed with, and DeliveryTemplateId is not required.
+        [$client, $transport] = TestClient::make(new MockResponse(json: ['OrderUID' => 'x', 'Vouchers' => []]));
+        self::order($client, $method, templateId: null, pdfTemplateUid: self::PDF_UID);
+
+        self::assertCount(1, $transport->calls);
+        self::assertSame(self::PDF_UID, $transport->calls[0]->field('DeliveryPDFTemplateUid'));
+        self::assertFalse($transport->calls[0]->hasField('DeliveryTemplateId'));
+    }
+
+    public function testPdfTemplateUidWithoutTemplateIdNeedsNoRecipientsEither(): void
+    {
+        [$client, $transport] = TestClient::make(new MockResponse(json: ['OrderUID' => 'x']));
+        $client->orders->create(productToken: 'tok', value: 5000, currency: 'DKK', quantity: 2, pdfTemplateUid: self::PDF_UID);
+
+        self::assertCount(1, $transport->calls);
+        self::assertSame(
+            [
+                'Product' => ['Token' => 'tok', 'Value' => 5000, 'Currency' => 'DKK', 'Quantity' => 2],
+                'Sync' => false,
+                'DeliveryPDFTemplateUid' => self::PDF_UID,
+            ],
+            $transport->calls[0]->body,
+        );
+    }
+
+    public function testPdfTemplateUidLeavesTheRecipientsRuleAsItIs(): void
+    {
+        // Recipients are required when templateId is set, with or without a PDF template.
         [$client, $transport] = TestClient::make();
 
         $this->assertInvalidArgument(
-            static fn() => self::order($client, $method, templateId: null, pdfTemplateUid: self::PDF_UID),
-            '/^templateId is required when pdfTemplateUid is set/',
+            static fn() => $client->orders->create(productToken: 'tok', value: 5000, currency: 'DKK', quantity: 1, templateId: 42, pdfTemplateUid: self::PDF_UID),
+            '/recipients is required/',
         );
         self::assertCount(0, $transport->calls);
     }
 
-    public function testTheRejectionSaysTheApiNeedsAnEmailTemplate(): void
-    {
-        [$client] = TestClient::make();
-
-        $this->assertInvalidArgument(
-            static fn() => self::order($client, 'create', templateId: null, pdfTemplateUid: self::PDF_UID),
-            '/must be an email template/',
-        );
-    }
-
-    public function testTreatsPdfTemplateUidNullAsNotSuppliedSoItNeedsNoTemplateId(): void
+    public function testTreatsPdfTemplateUidNullAsNotSupplied(): void
     {
         [$client, $transport] = TestClient::make(new MockResponse(json: ['OrderUID' => 'x']));
         $client->orders->create(productToken: 'tok', value: 5000, currency: 'DKK', quantity: 1, pdfTemplateUid: null);
@@ -491,10 +510,10 @@ final class OrdersTest extends TestCase
     }
 
     #[DataProvider('orderMethods')]
-    public function testChecksOnlyThatTemplateIdIsPresentNotWhatKindOfTemplateItIs(string $method): void
+    public function testDoesNotCheckWhatKindOfTemplateTemplateIdIs(string $method): void
     {
-        // Whether templateId is an email template, and whether the PDF template fits
-        // the product's brand and country, is the API's call; the client cannot know.
+        // Whether templateId is an email template, whether the product is a physical one, and whether the
+        // PDF template fits the product's brand and country, is the API's call; the client cannot know.
         [$client, $transport] = TestClient::make(new MockResponse(json: ['OrderUID' => 'x', 'Vouchers' => []]));
         self::order($client, $method, templateId: 7, pdfTemplateUid: self::PDF_UID);
 

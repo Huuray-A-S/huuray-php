@@ -310,7 +310,7 @@ All eleven v4 operations, and nothing else. Every method maps to one operation i
 | `pdfs->get(...)` | `POST /v4/Pdf` |
 | `pdfs->getWhenReady(...)` | `POST /v4/Pdf`, repeated while it answers 202 |
 
-Orders also accept an optional `pdfTemplateUid`, from `templates->list()->pdfTemplates`, which attaches a PDF template to the emails the delivery template sends. It needs a `templateId`, and the client rejects it without one before sending anything. The PDF template must also be available for the ordered product's brand and country (`brandName` / `country` on the PDF template, where null means any); otherwise the API rejects the order with a 422, thrown as `ValidationException`. The client does not pre-check that.
+Orders also accept an optional `pdfTemplateUid`, from `templates->list()->pdfTemplates`. For email delivery it is attached as a document to the emails sent by `templateId`, which must then be an email template. For a physical product (delivered by post only) it is the template the gift cards are printed with, and `templateId` is not required. The PDF template must also be available for the ordered product's brand and country (`brandName` / `country` on the PDF template, where null means any); otherwise the API rejects the order with a 422, thrown as `ValidationException`. The client pre-checks none of that.
 
 Need something not covered? `request()` signs any call for you:
 

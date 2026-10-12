@@ -65,15 +65,18 @@ class OrdersResource extends AbstractResource
      *                                                         after a timeout.
      * @param int|null                       $templateId       Delivery template id from `templates->list()`.
      *                                                         Omit for no delivery.
-     * @param string|null                    $pdfTemplateUid   PDF template uid from `templates->list()->pdfTemplates`,
-     *                                                         attached as a document to the emails sent by
-     *                                                         `templateId`. Requires `templateId`, which the API
-     *                                                         requires to be an email template. The PDF template
-     *                                                         must also be available for the ordered product's
-     *                                                         brand and country (`brandName` / `country` on the
-     *                                                         PDF template, where null means any); otherwise the
-     *                                                         API rejects the order with a 422, thrown as
-     *                                                         ValidationException. This client does not pre-check that.
+     * @param string|null                    $pdfTemplateUid   PDF template uid from `templates->list()->pdfTemplates`.
+     *                                                         For email delivery it is attached as a document to
+     *                                                         the emails sent by `templateId`, which must then be
+     *                                                         an email template. For a physical product (delivered
+     *                                                         by post only) it is the template the gift cards are
+     *                                                         printed with, and `templateId` is not required. The
+     *                                                         PDF template must also be available for the ordered
+     *                                                         product's brand and country (`brandName` / `country`
+     *                                                         on the PDF template, where null means any); otherwise
+     *                                                         the API rejects the order with a 422, thrown as
+     *                                                         ValidationException. This client pre-checks none of
+     *                                                         that.
      * @param \DateTimeInterface|string|null $deliveryDatetime Schedule delivery for a future time. Omit to deliver
      *                                                         as soon as possible.
      * @param string|null                    $personalMessage  A message included in every email or SMS for this order.
@@ -147,13 +150,16 @@ class OrdersResource extends AbstractResource
      *                                             or bool is rejected, including 50.00.
      * @param int                  $quantity       How many codes to order; at least 1 and at most 25. Any float
      *                                             or bool is rejected before the limit is checked.
-     * @param string|null          $pdfTemplateUid PDF template uid from `templates->list()->pdfTemplates`, attached
-     *                                             as a document to the emails sent by `templateId`, which it
-     *                                             requires. The PDF template must be available for the ordered
+     * @param string|null          $pdfTemplateUid PDF template uid from `templates->list()->pdfTemplates`. For
+     *                                             email delivery it is attached as a document to the emails sent
+     *                                             by `templateId`, which must then be an email template. For a
+     *                                             physical product (delivered by post only) it is the template
+     *                                             the gift cards are printed with, and `templateId` is not
+     *                                             required. The PDF template must be available for the ordered
      *                                             product's brand and country (`brandName` / `country` on the PDF
      *                                             template, where null means any); otherwise the API rejects the
      *                                             order with a 422, thrown as ValidationException. This client
-     *                                             does not pre-check that.
+     *                                             pre-checks none of that.
      * @param list<Recipient>|null $recipients     Required when `templateId` is set. The count must be either 1
      *                                             or exactly `quantity`.
      *
@@ -238,12 +244,14 @@ class OrdersResource extends AbstractResource
      * @param int         $templateId     Delivery template id from `templates->list()`.
      * @param string      $refId          Your reconciliation key. **Required by this SDK**: without it, an order
      *                                    that times out cannot be looked up.
-     * @param string|null $pdfTemplateUid PDF template uid from `templates->list()->pdfTemplates`, attached as a
-     *                                    document to the email. The API requires `templateId` to be an email
-     *                                    template when this is set. The PDF template must also be available for
-     *                                    the ordered product's brand and country (`brandName` / `country` on the
-     *                                    PDF template, where null means any); otherwise the API rejects the order
-     *                                    with a 422, thrown as ValidationException. This client does not pre-check that.
+     * @param string|null $pdfTemplateUid PDF template uid from `templates->list()->pdfTemplates`. For email
+     *                                    delivery it is attached as a document to the email, and `templateId` must
+     *                                    then be an email template. For a physical product (delivered by post
+     *                                    only) it is the template the gift cards are printed with. The PDF
+     *                                    template must also be available for the ordered product's brand and
+     *                                    country (`brandName` / `country` on the PDF template, where null means
+     *                                    any); otherwise the API rejects the order with a 422, thrown as
+     *                                    ValidationException. This client pre-checks none of that.
      *
      * @throws \InvalidArgumentException   before any request, for an invalid argument
      * @throws IndeterminateOrderException when the outcome is unknown — do not retry
@@ -456,15 +464,6 @@ class OrdersResource extends AbstractResource
         $value = Wire::requireMinorUnits($value);
         $quantity = Wire::requirePositiveInt($quantity, 'quantity');
 
-        // Null means "not supplied" on both sides: a null pdfTemplateUid needs no
-        // templateId, and a null templateId never counts as one.
-        if ($pdfTemplateUid !== null && $templateId === null) {
-            throw new \InvalidArgumentException(
-                'templateId is required when pdfTemplateUid is set — the API attaches the PDF template to the '
-                . 'emails sent by the delivery template, which must be an email template.',
-            );
-        }
-
         $wireRecipients = null;
         if ($recipients !== null) {
             $wireRecipients = [];
@@ -512,6 +511,8 @@ class OrdersResource extends AbstractResource
             'Sync' => $sync,
             'RefID' => $refId,
             'DeliveryTemplateId' => $templateId,
+            // Sent with or without a templateId: for a physical product (delivered by
+            // post only) the API takes the PDF template alone.
             'DeliveryPDFTemplateUid' => $pdfTemplateUid,
             'DeliveryDatetime' => Wire::dateTime($deliveryDatetime),
             'PersonalMessage' => $personalMessage,
