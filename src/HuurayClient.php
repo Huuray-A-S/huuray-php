@@ -9,12 +9,14 @@ use Huuray\Exception\ConfigurationException;
 use Huuray\Exception\ConnectionException;
 use Huuray\Exception\HuurayException;
 use Huuray\Exception\IndeterminateOrderException;
+use Huuray\Exception\RateLimitException;
 use Huuray\Exception\TimeoutException;
 use Huuray\Http\CurlTransport;
 use Huuray\Http\HttpRequest;
 use Huuray\Http\Transport;
 use Huuray\Http\TransportTimeoutException;
 use Huuray\Internal\MultipartBody;
+use Huuray\Internal\RetryAfter;
 use Huuray\Internal\RetryPolicy;
 use Huuray\Resources\BalancesResource;
 use Huuray\Resources\CatalogueResource;
@@ -72,6 +74,9 @@ class HuurayClient
     /** @var \Closure(): string */
     private readonly \Closure $nonceFactory;
 
+    /** @var \Closure(int): void */
+    private readonly \Closure $sleep;
+
     /**
      * @param string                   $apiToken     Your API token. Sent as `X-API-TOKEN`, so it must not contain a
      *                                               control character — trim a value read from a file.
@@ -94,6 +99,9 @@ class HuurayClient
      * @param (callable(): string)|null $nonceFactory Supply your own nonce. Must be unique per request, unused for
      *                                               60 days, and 1 to 50 characters of visible ASCII. The
      *                                               default (24 random bytes, base64url) is right for almost everyone.
+     * @param (\Closure(int): void)|null $sleep       Internal: a seam for the test suite, not part of the semver-stable
+     *                                               surface, and it may change or go away in any release. Waits the
+     *                                               given milliseconds before a retry; defaults to usleep().
      *
      * @throws ConfigurationException for missing credentials (an apiToken of only spaces counts as missing), a
      *                                control character in apiToken or userAgent, or an invalid baseUrl,
@@ -112,6 +120,7 @@ class HuurayClient
         ?Transport $transport = null,
         ?string $userAgent = null,
         ?callable $nonceFactory = null,
+        ?\Closure $sleep = null,
     ) {
         // A token of only spaces counts as missing: cURL drops a header whose value is blank,
         // so the request would go out with no X-API-TOKEN at all.
@@ -174,6 +183,9 @@ class HuurayClient
             );
         }
         $this->nonceFactory = $nonceFactory !== null ? $nonceFactory(...) : Auth::generateNonce(...);
+        $this->sleep = $sleep ?? static function (int $milliseconds): void {
+            usleep($milliseconds * 1000);
+        };
 
         $this->balances = new BalancesResource($this);
         $this->catalogue = new CatalogueResource($this);
@@ -211,6 +223,7 @@ class HuurayClient
      *
      * @throws \InvalidArgumentException  before any request, for an invalid argument
      * @throws IndeterminateOrderException when the outcome is unknown — do not retry
+     * @throws RateLimitException         on a 429: the order was not placed, so sending it again after waiting is safe
      * @throws HuurayException
      */
     public function sendReward(
@@ -370,10 +383,13 @@ class HuurayClient
 
         $attempts = $retryable ? $this->retry->maxRetries : 0;
         $lastError = null;
+        // The wait a 429 named in its Retry-After, which then replaces the next backoff.
+        $retryAfterMs = null;
 
         for ($attempt = 0; $attempt <= $attempts; $attempt++) {
             if ($attempt > 0) {
-                usleep(RetryPolicy::backoffDelayMs($attempt - 1, $this->retry) * 1000);
+                ($this->sleep)($retryAfterMs ?? RetryPolicy::backoffDelayMs($attempt - 1, $this->retry));
+                $retryAfterMs = null;
             }
 
             // A fresh nonce every attempt: the API rejects a repeat for 60 days.
@@ -481,8 +497,22 @@ class HuurayClient
                 return new RawResponse($parsed, $status, $response->headers);
             }
 
-            $lastError = ApiException::fromResponse($status, $readable ? $parsed : null, $method, $path);
+            $lastError = ApiException::fromResponse(
+                $status,
+                $readable ? $parsed : null,
+                $method,
+                $path,
+                RetryAfter::seconds((new RawResponse(null, $status, $response->headers))->header('Retry-After')),
+            );
             if ($attempt < $attempts && RetryPolicy::isRetryableStatus($status)) {
+                if ($lastError instanceof RateLimitException && $lastError->retryAfter !== null) {
+                    $retryAfterMs = RetryPolicy::retryAfterDelayMs($lastError->retryAfter, $this->retry);
+                    if ($retryAfterMs === null) {
+                        // Longer than maxDelayMs: not slept through, so the caller decides.
+                        throw $lastError;
+                    }
+                }
+
                 continue;
             }
 

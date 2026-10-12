@@ -9,6 +9,7 @@ use Huuray\Exception\AuthException;
 use Huuray\Exception\ConnectionException;
 use Huuray\Exception\HuurayException;
 use Huuray\Exception\IndeterminateOrderException;
+use Huuray\Exception\RateLimitException;
 use Huuray\Exception\ServerException;
 use Huuray\Exception\TimeoutException;
 use Huuray\Exception\ValidationException;
@@ -218,6 +219,7 @@ final class UploadsTest extends TestCase
     public static function failuresThatAReadWouldRetry(): iterable
     {
         yield '503' => [new MockResponse(status: 503), ServerException::class];
+        yield '429' => [new MockResponse(status: 429, headers: ['Retry-After' => '1']), RateLimitException::class];
         yield 'connection refused' => [new MockResponse(throws: new TransportException('cURL error 7: Failed to connect')), ConnectionException::class];
         yield 'connection dropped mid-body' => [new MockResponse(throws: new TransportException('cURL error 18: transfer closed')), ConnectionException::class];
         yield 'timeout' => [new MockResponse(throws: new TransportTimeoutException('cURL error 28: Operation timed out')), TimeoutException::class];
@@ -284,6 +286,7 @@ final class UploadsTest extends TestCase
         yield '401' => [401, AuthException::class];
         yield '413, which the specification does not list' => [413, ApiException::class];
         yield '422' => [422, ValidationException::class];
+        yield '429' => [429, RateLimitException::class];
         yield '500' => [500, ServerException::class];
     }
 

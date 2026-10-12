@@ -26,6 +26,10 @@ use Huuray\RetryOptions;
  * Five of the retryable operations are POSTs. They are POSTs because they take a
  * request body, not because they change anything.
  *
+ * A 429 does not change that split. The API did not process the request, so
+ * sending it again is safe, but for the four operations that are never retried
+ * the caller decides when: the client only throws RateLimitException.
+ *
  * @internal
  */
 final class RetryPolicy
@@ -33,9 +37,9 @@ final class RetryPolicy
     /**
      * HTTP statuses worth repeating a *read* for.
      *
-     * `429` is included defensively: it is not a documented response on any v4
-     * endpoint, so this client never assumes rate limiting exists — but if one
-     * appears, backing off is strictly better than hammering.
+     * `429` is a documented response on every v4 operation: the rate limit for the
+     * caller's IP address was exceeded and the request was not processed. Its
+     * `Retry-After` header says how long to wait; see {@see self::retryAfterDelayMs()}.
      */
     private const RETRYABLE_STATUS = [408, 425, 429, 500, 502, 503, 504];
 
@@ -45,6 +49,19 @@ final class RetryPolicy
     public static function isRetryableStatus(int $status): bool
     {
         return in_array($status, self::RETRYABLE_STATUS, true);
+    }
+
+    /**
+     * The wait before repeating a read that was answered 429 with a `Retry-After`, in
+     * milliseconds: the seconds the API named, at least one, in place of the computed
+     * backoff. Null when that is longer than `maxDelayMs`: the client then throws at
+     * once rather than sleeps, so the caller decides.
+     */
+    public static function retryAfterDelayMs(int $retryAfter, RetryOptions $options): ?int
+    {
+        $seconds = max(1, $retryAfter);
+
+        return $seconds > $options->maxDelayMs / 1000 ? null : $seconds * 1000;
     }
 
     /** Exponential backoff with full jitter, so parallel clients do not resonate. */

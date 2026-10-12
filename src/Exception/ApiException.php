@@ -41,6 +41,8 @@ class ApiException extends HuurayException
      * Builds the most specific exception for an HTTP status.
      *
      * @internal
+     *
+     * @param int|null $retryAfter The response's `Retry-After` in whole seconds, which only a 429 keeps.
      */
     public static function fromResponse(
         int $httpStatus,
@@ -48,6 +50,7 @@ class ApiException extends HuurayException
         mixed $body,
         string $method,
         string $path,
+        ?int $retryAfter = null,
     ): self {
         $statusMessage = Wire::string($body, 'StatusMessage') ?? Wire::string($body, 'Message');
         $status = Wire::int($body, 'Status');
@@ -67,6 +70,9 @@ class ApiException extends HuurayException
         }
         if ($httpStatus === 422) {
             return new ValidationException($message, $httpStatus, $status, $statusMessage, $redacted, $method, $path);
+        }
+        if ($httpStatus === 429) {
+            return new RateLimitException($message, $httpStatus, $status, $statusMessage, $redacted, $method, $path, $retryAfter);
         }
         if ($httpStatus >= 500) {
             return new ServerException($message, $httpStatus, $status, $statusMessage, $redacted, $method, $path);

@@ -10,6 +10,7 @@ use Huuray\Exception\ConfigurationException;
 use Huuray\Exception\ConnectionException;
 use Huuray\Exception\HuurayException;
 use Huuray\Exception\NotFoundException;
+use Huuray\Exception\RateLimitException;
 use Huuray\Exception\ServerException;
 use Huuray\Exception\TimeoutException;
 use Huuray\Exception\ValidationException;
@@ -19,12 +20,15 @@ use Huuray\Http\Transport;
 use Huuray\Http\TransportException;
 use Huuray\Http\TransportTimeoutException;
 use Huuray\HuurayClient;
+use Huuray\Recipient;
 use Huuray\RetryOptions;
 use Huuray\Tests\Support\CapturedRequest;
+use Huuray\Tests\Support\FakeSleep;
 use Huuray\Tests\Support\FakeTransport;
 use Huuray\Tests\Support\MockResponse;
 use Huuray\Tests\Support\TestClient;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\DataProviderExternal;
 use PHPUnit\Framework\TestCase;
 
 final class ClientTest extends TestCase
@@ -456,6 +460,7 @@ final class ClientTest extends TestCase
         yield '403' => [403, AuthException::class];
         yield '404' => [404, NotFoundException::class];
         yield '422' => [422, ValidationException::class];
+        yield '429' => [429, RateLimitException::class];
         yield '500' => [500, ServerException::class];
         yield '503' => [503, ServerException::class];
         yield '400' => [400, ApiException::class];
@@ -530,6 +535,246 @@ final class ClientTest extends TestCase
         self::assertSame(502, $e->httpStatus);
         self::assertNull($e->statusMessage);
         self::assertNull($e->body);
+    }
+
+    // -------------------------------------------------------------- rate limit
+
+    public function testMapsA429ToRateLimitExceptionCarryingTheRetryAfterSeconds(): void
+    {
+        [$client, $transport] = TestClient::make(new MockResponse(
+            status: 429,
+            json: ['Status' => 429, 'StatusMessage' => 'Too Many Requests'],
+            headers: ['Retry-After' => '17'],
+        ));
+
+        $e = $this->captureRateLimit(static fn() => $client->balances->list());
+
+        self::assertSame(RateLimitException::class, $e::class);
+        self::assertSame(17, $e->retryAfter);
+        self::assertSame(429, $e->httpStatus);
+        self::assertSame(429, $e->status);
+        self::assertSame('Too Many Requests', $e->statusMessage);
+        self::assertSame('GET', $e->method);
+        self::assertSame('/v4/Balance', $e->path);
+        self::assertStringContainsString('GET /v4/Balance failed with HTTP 429', $e->getMessage());
+        self::assertCount(1, $transport->calls);
+    }
+
+    public function testA429WithoutARetryAfterCarriesNull(): void
+    {
+        [$client] = TestClient::make(new MockResponse(status: 429));
+
+        self::assertNull($this->captureRateLimit(static fn() => $client->balances->list())->retryAfter);
+    }
+
+    /** @param array<string, string> $headers */
+    #[DataProviderExternal(PdfsTest::class, 'retryAfterHeaders')]
+    public function testReadsTheRetryAfterOfA429ByTheSameRulesAsTheOneOfAPdf(array $headers, ?int $expected): void
+    {
+        [$client] = TestClient::make(new MockResponse(status: 429, headers: $headers));
+
+        self::assertSame($expected, $this->captureRateLimit(static fn() => $client->balances->list())->retryAfter);
+    }
+
+    public function testWaitsTheRetryAfterOfA429InPlaceOfTheBackoffBeforeRepeatingARead(): void
+    {
+        $sleep = new FakeSleep();
+        [$client, $transport] = TestClient::make(
+            [new MockResponse(status: 429, headers: ['Retry-After' => '2']), new MockResponse(json: ['Balances' => []])],
+            // A base delay of 0 makes every computed backoff 0 ms, so 2000 can only be the Retry-After.
+            retry: new RetryOptions(maxRetries: 2, baseDelayMs: 0),
+            sleep: $sleep(...),
+        );
+
+        self::assertSame([], $client->balances->list()->balances);
+        self::assertSame([2000], $sleep->waits);
+        self::assertCount(2, $transport->calls);
+        self::assertNotSame($transport->calls[0]->headers['X-API-NONCE'], $transport->calls[1]->headers['X-API-NONCE']);
+    }
+
+    public function testARetryAfterReplacesOnlyTheBackoffThatFollowsIt(): void
+    {
+        $sleep = new FakeSleep();
+        [$client, $transport] = TestClient::make(
+            [new MockResponse(status: 429, headers: ['Retry-After' => '2']), new MockResponse(status: 503), new MockResponse(json: ['Balances' => []])],
+            retry: new RetryOptions(maxRetries: 2, baseDelayMs: 0),
+            sleep: $sleep(...),
+        );
+
+        $client->balances->list();
+
+        // The 503 names no wait, so it gets the computed backoff again, not the 429's two seconds.
+        self::assertSame([2000, 0], $sleep->waits);
+        self::assertCount(3, $transport->calls);
+    }
+
+    /** @return iterable<string, array{int, string, ?int}> */
+    public static function retryAfterAgainstMaxDelayMs(): iterable
+    {
+        yield 'exactly maxDelayMs is waited for' => [4000, '4', 4000];
+        yield 'a second longer is not' => [4000, '5', null];
+        yield 'whole seconds under a maxDelayMs that is not' => [1500, '1', 1000];
+        yield 'whole seconds over a maxDelayMs that is not' => [1500, '2', null];
+        yield 'no wait asked for: the one-second floor' => [1000, '0', 1000];
+        yield 'the one-second floor is itself longer than maxDelayMs' => [999, '0', null];
+        yield 'too large for an int' => [4000, '99999999999999999999999', null];
+    }
+
+    #[DataProvider('retryAfterAgainstMaxDelayMs')]
+    public function testWaitsARetryAfterOfAtLeastASecondButNeverOneLongerThanMaxDelayMs(int $maxDelayMs, string $retryAfter, ?int $waitMs): void
+    {
+        $sleep = new FakeSleep();
+        [$client, $transport] = TestClient::make(
+            [new MockResponse(status: 429, headers: ['Retry-After' => $retryAfter]), new MockResponse(json: ['Balances' => []])],
+            retry: new RetryOptions(maxRetries: 3, baseDelayMs: 0, maxDelayMs: $maxDelayMs),
+            sleep: $sleep(...),
+        );
+        $thrown = null;
+
+        try {
+            $client->balances->list();
+        } catch (RateLimitException $e) {
+            $thrown = $e;
+        }
+
+        if ($waitMs === null) {
+            // Thrown at once, with retries left and without sleeping, so the caller decides.
+            self::assertNotNull($thrown, 'Expected a RateLimitException.');
+            self::assertSame([], $sleep->waits);
+            self::assertCount(1, $transport->calls);
+        } else {
+            self::assertNull($thrown);
+            self::assertSame([$waitMs], $sleep->waits);
+            self::assertCount(2, $transport->calls);
+        }
+    }
+
+    /** @return iterable<string, array{array<string, string>}> */
+    public static function retryAfterHeadersThatNameNoWait(): iterable
+    {
+        yield 'no header' => [[]];
+        yield 'an HTTP date' => [['Retry-After' => 'Wed, 21 Oct 2026 07:28:00 GMT']];
+        yield 'a fraction' => [['Retry-After' => '1.5']];
+    }
+
+    /** @param array<string, string> $headers */
+    #[DataProvider('retryAfterHeadersThatNameNoWait')]
+    public function testBacksOffAsUsualWhenA429NamesNoUsableRetryAfter(array $headers): void
+    {
+        $sleep = new FakeSleep();
+        [$client, $transport] = TestClient::make(
+            [new MockResponse(status: 429, headers: $headers), new MockResponse(json: ['Balances' => []])],
+            retry: new RetryOptions(maxRetries: 1, baseDelayMs: 0),
+            sleep: $sleep(...),
+        );
+
+        $client->balances->list();
+
+        self::assertSame([0], $sleep->waits);
+        self::assertCount(2, $transport->calls);
+    }
+
+    public function testARetryAfterOnAnyOtherStatusIsNotWaitedFor(): void
+    {
+        // The specification gives Retry-After a meaning on a 429 only (and on the 202 of /v4/Pdf).
+        $sleep = new FakeSleep();
+        [$client, $transport] = TestClient::make(
+            [new MockResponse(status: 503, headers: ['Retry-After' => '3']), new MockResponse(json: ['Balances' => []])],
+            retry: new RetryOptions(maxRetries: 1, baseDelayMs: 0),
+            sleep: $sleep(...),
+        );
+
+        $client->balances->list();
+
+        self::assertSame([0], $sleep->waits);
+        self::assertCount(2, $transport->calls);
+    }
+
+    /** @return iterable<string, array{array<string, string>, list<int>, ?int}> */
+    public static function rateLimitsThatOutliveTheRetries(): iterable
+    {
+        yield 'with a Retry-After' => [['Retry-After' => '1'], [1000, 1000], 1];
+        yield 'without one' => [[], [0, 0], null];
+    }
+
+    /**
+     * @param array<string, string> $headers
+     * @param list<int>             $waits
+     */
+    #[DataProvider('rateLimitsThatOutliveTheRetries')]
+    public function testThrowsRateLimitExceptionOnceTheRetriesOfAReadAreUsedUp(array $headers, array $waits, ?int $retryAfter): void
+    {
+        $sleep = new FakeSleep();
+        [$client, $transport] = TestClient::make(
+            array_fill(0, 3, new MockResponse(status: 429, headers: $headers)),
+            retry: new RetryOptions(maxRetries: 2, baseDelayMs: 0),
+            sleep: $sleep(...),
+        );
+
+        $e = $this->captureRateLimit(static fn() => $client->balances->list());
+
+        self::assertSame($retryAfter, $e->retryAfter);
+        self::assertSame($waits, $sleep->waits);
+        self::assertCount(3, $transport->calls);
+    }
+
+    /** @return iterable<string, array{\Closure(HuurayClient): mixed}> */
+    public static function writes(): iterable
+    {
+        yield 'orders->create' => [static fn(HuurayClient $client): mixed => $client->orders->create(productToken: 't', value: 100, currency: 'DKK', quantity: 1, refId: 'r')];
+        yield 'orders->createSync' => [static fn(HuurayClient $client): mixed => $client->orders->createSync(productToken: 't', value: 100, currency: 'DKK', quantity: 1, refId: 'r')];
+        yield 'sendReward' => [static fn(HuurayClient $client): mixed => $client->sendReward(
+            productToken: 't',
+            value: 100,
+            currency: 'DKK',
+            recipient: new Recipient(email: 'jane@example.com'),
+            templateId: 42,
+            refId: 'r',
+        )];
+        yield 'orders->resend' => [static fn(HuurayClient $client): mixed => $client->orders->resend(orderUid: 'x')];
+        yield 'orders->cancel' => [static fn(HuurayClient $client): mixed => $client->orders->cancel(orderUid: 'x')];
+        yield 'uploads->create' => [static fn(HuurayClient $client): mixed => $client->uploads->create(file: '%PDF-1.7', fileName: 'po.pdf')];
+        yield 'request(), which is not retryable unless asked' => [static fn(HuurayClient $client): mixed => $client->request('POST', '/v4/Order', ['RefID' => 'r'])];
+    }
+
+    /** @param \Closure(HuurayClient): mixed $write */
+    #[DataProvider('writes')]
+    public function testA429OnAWriteIsNeverRetriedAndNeverAnIndeterminateOrder(\Closure $write): void
+    {
+        $sleep = new FakeSleep();
+        [$client, $transport] = TestClient::make(
+            new MockResponse(status: 429, headers: ['Retry-After' => '1']),
+            retry: new RetryOptions(maxRetries: 3, baseDelayMs: 0),
+            sleep: $sleep(...),
+        );
+
+        try {
+            $write($client);
+            self::fail('Expected a RateLimitException.');
+        } catch (HuurayException $e) {
+            // The API did not process the request, so the outcome is known: exactly this class,
+            // never IndeterminateOrderException.
+            self::assertSame(RateLimitException::class, $e::class);
+            self::assertNull($e->getPrevious());
+        }
+
+        self::assertCount(1, $transport->calls);
+        self::assertSame([], $sleep->waits);
+    }
+
+    public function testWaitsInMillisecondsByDefault(): void
+    {
+        [$client] = TestClient::make();
+        $sleep = (new \ReflectionProperty(HuurayClient::class, 'sleep'))->getValue($client);
+        self::assertInstanceOf(\Closure::class, $sleep);
+
+        $started = hrtime(true);
+        $sleep(50);
+        $elapsedMs = (hrtime(true) - $started) / 1e6;
+
+        // 50 microseconds would end far sooner, and 50 seconds far later.
+        self::assertGreaterThan(25, $elapsedMs);
+        self::assertLessThan(5_000, $elapsedMs);
     }
 
     // ------------------------------------------------------------ retry policy
@@ -951,5 +1196,17 @@ final class ClientTest extends TestCase
         }
 
         self::fail('Expected an ApiException.');
+    }
+
+    /** @param \Closure(): mixed $call */
+    private function captureRateLimit(\Closure $call): RateLimitException
+    {
+        try {
+            $call();
+        } catch (RateLimitException $e) {
+            return $e;
+        }
+
+        self::fail('Expected a RateLimitException.');
     }
 }

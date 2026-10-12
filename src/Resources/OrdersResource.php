@@ -8,6 +8,7 @@ use Huuray\Exception\ConnectionException;
 use Huuray\Exception\HuurayException;
 use Huuray\Exception\IndeterminateOrderException;
 use Huuray\Exception\NotFoundException;
+use Huuray\Exception\RateLimitException;
 use Huuray\Exception\ServerException;
 use Huuray\Exception\ValidationException;
 use Huuray\Internal\Wire;
@@ -42,7 +43,9 @@ class OrdersResource extends AbstractResource
      *
      * **Not retried on failure.** The endpoint has no idempotency key, so a retry
      * can order twice. A timeout, a dropped connection, a 5xx, or an unreadable
-     * 2xx body throws IndeterminateOrderException instead.
+     * 2xx body throws IndeterminateOrderException instead. A 429 is different: the
+     * API did not process the order, so it throws RateLimitException, and sending
+     * the same order again after waiting is safe.
      *
      * `additionalReference`, `customerReference`, `articleNumber`, `description` and
      * `purchaseOrderFileToken` are the invoice fields of the B2B send pages; the
@@ -85,6 +88,7 @@ class OrdersResource extends AbstractResource
      *
      * @throws \InvalidArgumentException   before any request, for an invalid argument
      * @throws IndeterminateOrderException when the outcome is unknown — do not retry
+     * @throws RateLimitException          on a 429: the order was not placed, so sending it again after waiting is safe
      * @throws ValidationException         when the API rejects the order
      * @throws HuurayException
      */
@@ -165,6 +169,7 @@ class OrdersResource extends AbstractResource
      *
      * @throws \InvalidArgumentException   before any request, for an invalid argument
      * @throws IndeterminateOrderException when the outcome is unknown — do not retry
+     * @throws RateLimitException          on a 429: the order was not placed, so sending it again after waiting is safe
      * @throws ValidationException         when the API rejects the order
      * @throws HuurayException
      */
@@ -255,6 +260,7 @@ class OrdersResource extends AbstractResource
      *
      * @throws \InvalidArgumentException   before any request, for an invalid argument
      * @throws IndeterminateOrderException when the outcome is unknown — do not retry
+     * @throws RateLimitException          on a 429: the order was not placed, so sending it again after waiting is safe
      * @throws ValidationException         when the API rejects the order
      * @throws HuurayException
      */
@@ -543,7 +549,8 @@ class OrdersResource extends AbstractResource
             return $this->client->send('POST', '/v4/Order', $body, retryable: false)->data;
         } catch (ConnectionException|ServerException $cause) {
             // The request may well have been processed. A 4xx is different: the API
-            // definitively rejected that order, so it is rethrown unchanged.
+            // definitively rejected that order, so it is rethrown unchanged. That
+            // includes a 429, which the API did not process: RateLimitException.
             throw new IndeterminateOrderException($refId, $cause);
         }
     }

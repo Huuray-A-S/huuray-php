@@ -11,6 +11,7 @@ use Huuray\Result\ListTemplatesResult;
 use Huuray\Result\PdfTemplate;
 use Huuray\Result\Template;
 use Huuray\RetryOptions;
+use Huuray\Tests\Support\FakeSleep;
 use Huuray\Tests\Support\MockResponse;
 use Huuray\Tests\Support\TestClient;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -310,6 +311,19 @@ final class ResourcesTest extends TestCase
             $read($client);
 
             self::assertCount(2, $transport->calls, $name . ' should be retried once after a 503');
+
+            // A 429 too, after the wait its Retry-After names.
+            $sleep = new FakeSleep();
+            [$limited, $limitedTransport] = TestClient::make(
+                [new MockResponse(status: 429, headers: ['Retry-After' => '1']), new MockResponse(json: new \stdClass())],
+                retry: new RetryOptions(maxRetries: 1, baseDelayMs: 0),
+                sleep: $sleep(...),
+            );
+
+            $read($limited);
+
+            self::assertCount(2, $limitedTransport->calls, $name . ' should be retried once after a 429');
+            self::assertSame([1000], $sleep->waits, $name . ' should wait the Retry-After of a 429');
         }
     }
 }

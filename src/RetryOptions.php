@@ -24,10 +24,16 @@ final readonly class RetryOptions
     /** Attempts after the first. `0` disables retrying entirely. */
     public int $maxRetries;
 
-    /** Base delay in milliseconds; doubles per attempt, with full jitter. */
+    /**
+     * Base delay in milliseconds; doubles per attempt, with full jitter. After a 429 that names a `Retry-After`,
+     * the client waits those seconds, at least 1, in place of this backoff.
+     */
     public int $baseDelayMs;
 
-    /** Ceiling for a single backoff wait, in milliseconds. */
+    /**
+     * Ceiling for a single wait between attempts, in milliseconds. A 429 whose `Retry-After` asks for longer is
+     * not waited for: the read throws RateLimitException at once.
+     */
     public int $maxDelayMs;
 
     public function __construct(

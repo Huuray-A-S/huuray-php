@@ -7,6 +7,7 @@ namespace Huuray\Tests;
 use Huuray\Exception\ConnectionException;
 use Huuray\Exception\HuurayException;
 use Huuray\Exception\IndeterminateOrderException;
+use Huuray\Exception\RateLimitException;
 use Huuray\Exception\ServerException;
 use Huuray\Exception\ValidationException;
 use Huuray\Http\TransportException;
@@ -913,6 +914,27 @@ final class OrdersTest extends TestCase
         $this->expectException(ValidationException::class);
 
         $client->orders->create(productToken: 'tok', value: 5000, currency: 'DKK', quantity: 1, refId: 'r');
+    }
+
+    #[DataProvider('orderMethods')]
+    public function testDoesNotCallA429AnUnknownOutcomeTheOrderWasNotProcessed(string $method): void
+    {
+        [$client, $transport] = TestClient::make(
+            new MockResponse(status: 429, json: ['Status' => 429, 'StatusMessage' => 'Too Many Requests'], headers: ['Retry-After' => '30']),
+            retry: new RetryOptions(maxRetries: 3, baseDelayMs: 1),
+        );
+
+        try {
+            self::order($client, $method, templateId: 42);
+            self::fail('Expected a RateLimitException.');
+        } catch (HuurayException $e) {
+            // The specification says the request was not processed, so sending the order
+            // again after waiting is safe: never IndeterminateOrderException.
+            self::assertInstanceOf(RateLimitException::class, $e);
+            self::assertSame(30, $e->retryAfter);
+        }
+
+        self::assertCount(1, $transport->calls);
     }
 
     public function testWrapsOnlyOrderingNotResendOrCancel(): void

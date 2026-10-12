@@ -7,9 +7,11 @@ namespace Huuray\Resources;
 use Huuray\Exception\ConnectionException;
 use Huuray\Exception\HuurayException;
 use Huuray\Exception\NotFoundException;
+use Huuray\Exception\RateLimitException;
 use Huuray\Exception\TimeoutException;
 use Huuray\Exception\ValidationException;
 use Huuray\HuurayClient;
+use Huuray\Internal\RetryAfter;
 use Huuray\Internal\Sleep;
 use Huuray\Internal\Wire;
 use Huuray\Result\PdfDocument;
@@ -91,6 +93,7 @@ class PdfsResource extends AbstractResource
      *                                   template that does not exist
      * @throws ValidationException       for an order with more than three receivers, or a PDF template that cannot
      *                                   be used for it or is needed and missing
+     * @throws RateLimitException        on a 429 that the retries a read gets did not get past
      * @throws ConnectionException       when the request did not complete, or a document's content is not valid
      *                                   base64; the message never quotes the content
      * @throws \InvalidArgumentException before any request, for a custom nonce that is empty, over 50 characters or
@@ -117,7 +120,9 @@ class PdfsResource extends AbstractResource
      * so asking again later is safe.
      *
      * Any 2xx other than 200 is treated like 202 (not ready); any non-2xx ends the
-     * wait with an exception, thrown at once as from `get()`.
+     * wait with an exception, thrown at once as from `get()`. That includes a 429:
+     * it is retried as any read is, and one that outlives those retries ends the
+     * wait with RateLimitException.
      *
      * @param int $maxWaitMs How long to keep asking, in milliseconds; 10 minutes by default. It bounds the waits
      *                       between requests: each request still has the client's `timeoutMs`.
@@ -126,6 +131,7 @@ class PdfsResource extends AbstractResource
      *                                   its `timeoutMs` is `maxWaitMs`
      * @throws NotFoundException         as from `get()`
      * @throws ValidationException       as from `get()`
+     * @throws RateLimitException        as from `get()`
      * @throws ConnectionException       as from `get()`
      * @throws \InvalidArgumentException as from `get()`
      * @throws HuurayException
@@ -200,7 +206,7 @@ class PdfsResource extends AbstractResource
             ready: $response->httpStatus === 200,
             orderUid: Wire::string($response->data, 'OrderUID'),
             documents: $documents,
-            retryAfter: self::seconds($response->header('Retry-After')),
+            retryAfter: RetryAfter::seconds($response->header('Retry-After')),
         );
 
         return [$result, Wire::string($response->data, 'StatusMessage') ?? Wire::string($response->data, 'Message')];
@@ -257,24 +263,5 @@ class PdfsResource extends AbstractResource
         $bytes = base64_decode($text, true);
 
         return $bytes === false ? null : $bytes;
-    }
-
-    /**
-     * Whole seconds from a `Retry-After` value; null when absent, or not a whole number
-     * of seconds — an HTTP date included. A value with as many digits as PHP_INT_MAX,
-     * leading zeros aside, or more, reads as PHP_INT_MAX.
-     */
-    private static function seconds(?string $value): ?int
-    {
-        $value = $value === null ? '' : trim($value, " \t");
-        if (preg_match('/^[0-9]+$/D', $value) !== 1) {
-            return null;
-        }
-
-        // Counted rather than cast: PHP 8.5 warns when an (int) cast cannot represent
-        // the value. Any number with fewer digits than PHP_INT_MAX fits.
-        $digits = ltrim($value, '0');
-
-        return strlen($digits) >= strlen((string) PHP_INT_MAX) ? PHP_INT_MAX : (int) $digits;
     }
 }

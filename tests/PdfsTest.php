@@ -10,6 +10,7 @@ use Huuray\Exception\ConnectionException;
 use Huuray\Exception\HuurayException;
 use Huuray\Exception\IndeterminateOrderException;
 use Huuray\Exception\NotFoundException;
+use Huuray\Exception\RateLimitException;
 use Huuray\Exception\ServerException;
 use Huuray\Exception\TimeoutException;
 use Huuray\Exception\ValidationException;
@@ -27,6 +28,7 @@ use Huuray\Result\PdfResult;
 use Huuray\RetryOptions;
 use Huuray\Tests\Support\CapturedRequest;
 use Huuray\Tests\Support\FakeClock;
+use Huuray\Tests\Support\FakeSleep;
 use Huuray\Tests\Support\FakeTransport;
 use Huuray\Tests\Support\MockResponse;
 use Huuray\Tests\Support\TestClient;
@@ -758,8 +760,8 @@ final class PdfsTest extends TestCase
     {
         yield '404 at once' => [[new MockResponse(status: 404)], NotFoundException::class, []];
         yield '422 after one wait' => [[self::notReady(retryAfter: '1'), new MockResponse(status: 422)], ValidationException::class, [1]];
-        // 429 is not in the specification, so it gets no 202-style wait: it is an error like any other.
-        yield '429 with a Retry-After' => [[new MockResponse(status: 429, headers: ['Retry-After' => '5'])], ApiException::class, []];
+        // A 429 gets no 202-style wait from getWhenReady(): with the read retries off, it ends the wait at once.
+        yield '429 with a Retry-After' => [[new MockResponse(status: 429, headers: ['Retry-After' => '5'])], RateLimitException::class, []];
     }
 
     /**
@@ -781,6 +783,57 @@ final class PdfsTest extends TestCase
 
         self::assertSame($waits, $clock->waits);
         self::assertCount(count($responses), $transport->calls);
+    }
+
+    public function testGetWhenReadyLeavesA429ToTheReadRetriesAndGoesOnWaitingForThePdf(): void
+    {
+        $retrySleep = new FakeSleep();
+        [$pdfs, $transport, $clock] = self::pdfs(
+            [
+                new MockResponse(status: 429, headers: ['Retry-After' => '2']),
+                self::notReady(retryAfter: '5'),
+                new MockResponse(json: self::ready([self::document(5123401, self::PDF_A)])),
+            ],
+            new RetryOptions(maxRetries: 1, baseDelayMs: 0),
+            $retrySleep(...),
+        );
+
+        $result = $pdfs->getWhenReady(orderUid: self::ORDER_UID);
+
+        self::assertSame(self::PDF_A, $result->documents[0]->content);
+        // The 429 was waited out by the client's read retry, the 202 by getWhenReady() itself.
+        self::assertSame([2000], $retrySleep->waits);
+        self::assertSame([5], $clock->waits);
+        self::assertCount(3, $transport->calls);
+    }
+
+    public function testGetWhenReadyEndsWithTheRateLimitExceptionWhenA429OutlivesTheReadRetries(): void
+    {
+        $retrySleep = new FakeSleep();
+        [$pdfs, $transport, $clock] = self::pdfs(
+            [
+                self::notReady(retryAfter: '5'),
+                new MockResponse(status: 429, headers: ['Retry-After' => '1']),
+                new MockResponse(status: 429, headers: ['Retry-After' => '1']),
+                new MockResponse(status: 429, headers: ['Retry-After' => '3']),
+            ],
+            new RetryOptions(maxRetries: 2, baseDelayMs: 0),
+            $retrySleep(...),
+        );
+
+        try {
+            $pdfs->getWhenReady(orderUid: self::ORDER_UID);
+            self::fail('Expected a RateLimitException.');
+        } catch (HuurayException $e) {
+            // Not the TimeoutException of a wait that gave up: the rate limit ended it.
+            self::assertInstanceOf(RateLimitException::class, $e);
+            self::assertSame(3, $e->retryAfter);
+        }
+
+        // No looping of its own: one 202-style wait, then only the two waits of the read retries.
+        self::assertSame([5], $clock->waits);
+        self::assertSame([1000, 1000], $retrySleep->waits);
+        self::assertCount(4, $transport->calls);
     }
 
     // -------------------------------------------------------------- redaction
@@ -827,12 +880,14 @@ final class PdfsTest extends TestCase
      * Retries are off unless a test asks for them.
      *
      * @param MockResponse|list<MockResponse> $responses
+     * @param (\Closure(int): void)|null      $retrySleep Stands in for the client's wait before a read retry, in
+     *                                                    milliseconds: not the wait getWhenReady() makes itself.
      *
      * @return array{PdfsResource, FakeTransport, FakeClock}
      */
-    private static function pdfs(MockResponse|array $responses, ?RetryOptions $retry = null): array
+    private static function pdfs(MockResponse|array $responses, ?RetryOptions $retry = null, ?\Closure $retrySleep = null): array
     {
-        [$client, $transport] = TestClient::make($responses, retry: $retry);
+        [$client, $transport] = TestClient::make($responses, retry: $retry, sleep: $retrySleep);
         $clock = new FakeClock();
 
         return [new PdfsResource($client, $clock->sleep(...), $clock->now(...)), $transport, $clock];

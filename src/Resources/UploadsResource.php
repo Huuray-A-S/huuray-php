@@ -32,7 +32,8 @@ class UploadsResource extends AbstractResource
      * reference allows at most five per account. A timeout or a dropped connection
      * throws the ordinary TimeoutException or ConnectionException, saying the upload
      * may still have been stored — never IndeterminateOrderException, as there is no
-     * way to look an upload up.
+     * way to look an upload up. A 429 throws RateLimitException: the API did not
+     * process the upload, so sending it again after waiting is safe.
      *
      * The API reference says a file must be a PDF or an image of at most 10 MB, and
      * that upload must be enabled for your account; the API rejects anything else.

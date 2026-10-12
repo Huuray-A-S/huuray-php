@@ -22,6 +22,7 @@ final class TestClient
      *
      * @param MockResponse|list<MockResponse>|null $responses
      * @param (callable(): string)|null            $nonceFactory
+     * @param (\Closure(int): void)|null           $sleep        Stands in for the wait before a retry, in milliseconds.
      *
      * @return array{HuurayClient, FakeTransport}
      */
@@ -33,6 +34,7 @@ final class TestClient
         int $timeoutMs = HuurayClient::DEFAULT_TIMEOUT_MS,
         ?string $userAgent = null,
         ?callable $nonceFactory = null,
+        ?\Closure $sleep = null,
     ): array {
         $transport = new FakeTransport($responses);
         $client = new HuurayClient(
@@ -45,6 +47,7 @@ final class TestClient
             transport: $transport,
             userAgent: $userAgent,
             nonceFactory: $nonceFactory,
+            sleep: $sleep,
         );
 
         return [$client, $transport];

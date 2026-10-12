@@ -35,9 +35,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   throws `TimeoutException`, whose message says it gave up waiting within
   `maxWaitMs` and quotes the API's last status message. Any 2xx other than 200 is
   treated like 202 (not ready); any non-2xx ends the wait with an exception.
+- `RateLimitException`, an `ApiException`, for HTTP 429, which the specification now
+  documents on every operation: the rate limit for your IP address was exceeded and
+  the request was not processed. `retryAfter` is the `Retry-After` header in whole
+  seconds, or null when it is absent or not whole seconds, read by the same rules as
+  `PdfResult::$retryAfter`. It is safe to send the same request again after waiting,
+  an order included: a 429 is never `IndeterminateOrderException`.
 
 ### Changed
 
+- A read answered 429 with a `Retry-After` waits that many seconds, at least 1, in
+  place of the computed backoff, and then asks again. When that wait is longer than
+  `RetryOptions::$maxDelayMs` the client does not sleep: it throws
+  `RateLimitException` at once, as it does when the retries are used up. Orders,
+  resends, cancels and uploads are still never retried, and throw it at the first
+  429. `pdfs->getWhenReady()` ends its wait with it when a 429 outlives the read
+  retries.
 - `orders->create()` and `orders->createSync()` no longer reject a `pdfTemplateUid`
   without a `templateId`: the order is sent as is, with `DeliveryPDFTemplateUid` and
   no `DeliveryTemplateId`. The specification now says that for a physical product
