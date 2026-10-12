@@ -47,8 +47,12 @@ final class TestClient
             transport: $transport,
             userAgent: $userAgent,
             nonceFactory: $nonceFactory,
-            sleep: $sleep,
         );
+        // By reflection: the wait before a retry is no constructor argument, so the
+        // public constructor carries no seam for the test suite.
+        if ($sleep !== null) {
+            (new \ReflectionProperty(HuurayClient::class, 'sleep'))->setValue($client, $sleep);
+        }
 
         return [$client, $transport];
     }

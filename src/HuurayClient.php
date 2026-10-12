@@ -74,8 +74,13 @@ class HuurayClient
     /** @var \Closure(): string */
     private readonly \Closure $nonceFactory;
 
-    /** @var \Closure(int): void */
-    private readonly \Closure $sleep;
+    /**
+     * Waits the given milliseconds before a retry. Not readonly, and not a constructor
+     * argument: the test suite stands in for it by reflection.
+     *
+     * @var \Closure(int): void
+     */
+    private \Closure $sleep;
 
     /**
      * @param string                   $apiToken     Your API token. Sent as `X-API-TOKEN`, so it must not contain a
@@ -99,9 +104,6 @@ class HuurayClient
      * @param (callable(): string)|null $nonceFactory Supply your own nonce. Must be unique per request, unused for
      *                                               60 days, and 1 to 50 characters of visible ASCII. The
      *                                               default (24 random bytes, base64url) is right for almost everyone.
-     * @param (\Closure(int): void)|null $sleep       Internal: a seam for the test suite, not part of the semver-stable
-     *                                               surface, and it may change or go away in any release. Waits the
-     *                                               given milliseconds before a retry; defaults to usleep().
      *
      * @throws ConfigurationException for missing credentials (an apiToken of only spaces counts as missing), a
      *                                control character in apiToken or userAgent, or an invalid baseUrl,
@@ -120,7 +122,6 @@ class HuurayClient
         ?Transport $transport = null,
         ?string $userAgent = null,
         ?callable $nonceFactory = null,
-        ?\Closure $sleep = null,
     ) {
         // A token of only spaces counts as missing: cURL drops a header whose value is blank,
         // so the request would go out with no X-API-TOKEN at all.
@@ -183,7 +184,7 @@ class HuurayClient
             );
         }
         $this->nonceFactory = $nonceFactory !== null ? $nonceFactory(...) : Auth::generateNonce(...);
-        $this->sleep = $sleep ?? static function (int $milliseconds): void {
+        $this->sleep = static function (int $milliseconds): void {
             usleep($milliseconds * 1000);
         };
 
