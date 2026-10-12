@@ -126,7 +126,10 @@ class PdfsResource extends AbstractResource
      * wait with RateLimitException.
      *
      * @param int $maxWaitMs How long to keep asking, in milliseconds; 10 minutes by default. It bounds the waits
-     *                       between requests: each request still has the client's `timeoutMs`.
+     *                       between requests: each request still has the client's `timeoutMs`. Only a wait after a
+     *                       202 is checked against it: a wait between the retries of a single request (backoff or
+     *                       `Retry-After`) is never refused or shortened for it, though the time it takes counts as
+     *                       time passed.
      *
      * @throws TimeoutException          when the PDFs are still not ready and the next wait would pass `maxWaitMs`;
      *                                   its `timeoutMs` is `maxWaitMs`

@@ -671,6 +671,33 @@ final class PdfsTest extends TestCase
         self::assertCount(2, $fake->calls);
     }
 
+    public function testGetWhenReadyNeverShortensARetryWaitForMaxWaitButCountsTheTimeItTakes(): void
+    {
+        $clock = new FakeClock();
+        [$client, $transport] = TestClient::make(
+            [new MockResponse(status: 429, headers: ['Retry-After' => '4']), self::notReady(retryAfter: '1')],
+            retry: new RetryOptions(maxRetries: 1, baseDelayMs: 0),
+            // As the real wait before a retry does, this one takes time on the clock getWhenReady() reads.
+            sleep: static function (int $milliseconds) use ($clock): void {
+                $clock->now += $milliseconds / 1000;
+            },
+        );
+        $pdfs = new PdfsResource($client, $clock->sleep(...), $clock->now(...));
+        $started = $clock->now;
+
+        try {
+            $pdfs->getWhenReady(orderUid: self::ORDER_UID, maxWaitMs: 3_000);
+            self::fail('Expected a TimeoutException.');
+        } catch (TimeoutException) {
+        }
+
+        // The 4 s the 429 asked for were waited in full, past a maxWaitMs of 3 s. They count as time
+        // passed all the same: the 1 s wait after the 202, which fits in 3 s on its own, was not made.
+        self::assertSame(4.0, $clock->now - $started);
+        self::assertSame([], $clock->waits);
+        self::assertCount(2, $transport->calls);
+    }
+
     public function testGetWhenReadyWithAMaxWaitOfZeroAsksOnceAndNeverWaits(): void
     {
         [$pdfs, $transport, $clock] = self::pdfs([self::notReady(retryAfter: '30')]);
