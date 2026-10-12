@@ -31,4 +31,25 @@ final class Sleep
             $seconds -= $chunk;
         }
     }
+
+    /**
+     * Sleeps for any number of milliseconds: the wait before a retry.
+     *
+     * usleep() keeps only the low 32 bits of its microseconds, so a wait of about 71
+     * minutes or more wraps round to a short one. Whole seconds go through
+     * {@see self::seconds()}, a day at a time, and usleep() gets only the rest.
+     *
+     * @param (\Closure(int): mixed)|null $sleep  Sleeps the given seconds, as for seconds().
+     * @param (\Closure(int): mixed)|null $usleep Sleeps the given microseconds, always under a second: usleep()
+     *                                            itself, unless the test suite stands in for it.
+     */
+    public static function milliseconds(int $milliseconds, ?\Closure $sleep = null, ?\Closure $usleep = null): void
+    {
+        self::seconds(intdiv($milliseconds, 1000), $sleep);
+
+        $rest = $milliseconds % 1000;
+        if ($rest > 0) {
+            ($usleep ?? usleep(...))($rest * 1000);
+        }
+    }
 }

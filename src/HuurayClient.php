@@ -18,6 +18,7 @@ use Huuray\Http\TransportTimeoutException;
 use Huuray\Internal\MultipartBody;
 use Huuray\Internal\RetryAfter;
 use Huuray\Internal\RetryPolicy;
+use Huuray\Internal\Sleep;
 use Huuray\Resources\BalancesResource;
 use Huuray\Resources\CatalogueResource;
 use Huuray\Resources\ExchangeRatesResource;
@@ -184,9 +185,9 @@ class HuurayClient
             );
         }
         $this->nonceFactory = $nonceFactory !== null ? $nonceFactory(...) : Auth::generateNonce(...);
-        $this->sleep = static function (int $milliseconds): void {
-            usleep($milliseconds * 1000);
-        };
+        // Not usleep() alone: it keeps only the low 32 bits of its microseconds, so a wait
+        // of about 71 minutes or more would wrap round to a short one.
+        $this->sleep = Sleep::milliseconds(...);
 
         $this->balances = new BalancesResource($this);
         $this->catalogue = new CatalogueResource($this);

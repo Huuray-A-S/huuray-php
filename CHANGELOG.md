@@ -56,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resends, cancels and uploads are still never retried, and throw it at the first
   429. `pdfs->getWhenReady()` ends its wait with it when a 429 outlives the read
   retries.
+- A wait before a retry no longer wraps round to a short one when it is about 71
+  minutes or longer, and a backoff no longer comes out as 0 when
+  `RetryOptions::$baseDelayMs` and `$maxDelayMs` are very large.
 - `orders->create()` and `orders->createSync()` no longer reject a `pdfTemplateUid`
   without a `templateId`: the order is sent as is, with `DeliveryPDFTemplateUid` and
   no `DeliveryTemplateId`. The specification now says that for a physical product

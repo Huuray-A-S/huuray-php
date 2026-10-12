@@ -13,7 +13,9 @@ namespace Huuray;
  * idempotency key.
  *
  * Any value left unset (or passed as null) falls back to its default; it never
- * disables retrying. A negative value is clamped to zero.
+ * disables retrying. A negative value is clamped to zero. Nothing is clamped
+ * from above: however long a wait the delays allow, it never wraps round to a
+ * short one.
  */
 final readonly class RetryOptions
 {

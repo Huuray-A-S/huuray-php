@@ -61,16 +61,20 @@ final class RetryPolicy
     {
         $seconds = max(1, $retryAfter);
 
-        return $seconds > $options->maxDelayMs / 1000 ? null : $seconds * 1000;
+        // Compared in whole seconds, before multiplying: whatever the header names,
+        // the milliseconds returned are at most maxDelayMs and cannot overflow an int.
+        return $seconds > intdiv($options->maxDelayMs, 1000) ? null : $seconds * 1000;
     }
 
     /** Exponential backoff with full jitter, so parallel clients do not resonate. */
     public static function backoffDelayMs(int $attempt, RetryOptions $options): int
     {
-        $exponential = (int) min(
-            (float) $options->baseDelayMs * (2 ** min(max($attempt, 0), 30)),
-            (float) $options->maxDelayMs,
-        );
+        // In integers, and with the ceiling tested before the doubling, so neither can
+        // overflow however large baseDelayMs and maxDelayMs are.
+        $factor = 1 << min(max($attempt, 0), 30);
+        $exponential = $options->baseDelayMs > intdiv($options->maxDelayMs, $factor)
+            ? $options->maxDelayMs
+            : $options->baseDelayMs * $factor;
 
         // random_int, not a CSPRNG requirement: this is jitter to desynchronise
         // clients, and random_int is simply the cleanest uniform integer source.

@@ -20,6 +20,7 @@ use Huuray\Http\Transport;
 use Huuray\Http\TransportException;
 use Huuray\Http\TransportTimeoutException;
 use Huuray\HuurayClient;
+use Huuray\Internal\Sleep;
 use Huuray\Recipient;
 use Huuray\RetryOptions;
 use Huuray\Tests\Support\CapturedRequest;
@@ -618,6 +619,12 @@ final class ClientTest extends TestCase
         yield 'no wait asked for: the one-second floor' => [1000, '0', 1000];
         yield 'the one-second floor is itself longer than maxDelayMs' => [999, '0', null];
         yield 'too large for an int' => [4000, '99999999999999999999999', null];
+        // A maxDelayMs of PHP_INT_MAX is no ceiling to speak of: the wait stays exact, and nothing overflows an int.
+        $mostSeconds = intdiv(PHP_INT_MAX, 1000);
+        yield 'past what one usleep() call can take' => [PHP_INT_MAX, '4295', 4_295_000];
+        yield 'the most seconds whose milliseconds fit an int' => [PHP_INT_MAX, (string) $mostSeconds, $mostSeconds * 1000];
+        yield 'a second more than that, 16 digits where an int is 64 bits' => [PHP_INT_MAX, (string) ($mostSeconds + 1), null];
+        yield '23 digits, too large for an int' => [PHP_INT_MAX, '99999999999999999999999', null];
     }
 
     #[DataProvider('retryAfterAgainstMaxDelayMs')]
@@ -775,6 +782,81 @@ final class ClientTest extends TestCase
         // 50 microseconds would end far sooner, and 50 seconds far later.
         self::assertGreaterThan(25, $elapsedMs);
         self::assertLessThan(5_000, $elapsedMs);
+    }
+
+    public function testWaitsThroughSleepByDefaultSoALongWaitNeverWrapsRound(): void
+    {
+        [$client] = TestClient::make();
+        $sleep = (new \ReflectionProperty(HuurayClient::class, 'sleep'))->getValue($client);
+
+        self::assertInstanceOf(\Closure::class, $sleep);
+        $function = new \ReflectionFunction($sleep);
+        self::assertSame(Sleep::class . '::milliseconds', $function->getClosureScopeClass()?->getName() . '::' . $function->getName());
+    }
+
+    /** @return iterable<string, array{int, list<int>, list<int>}> */
+    public static function waitsSplitBetweenSleepAndUsleep(): iterable
+    {
+        yield 'under a second' => [250, [], [250_000]];
+        yield 'whole seconds' => [2_000, [2], []];
+        // 4295 seconds in microseconds is just past 2^32: usleep() alone waited only the bit over, some 33 ms.
+        yield 'past what one usleep() call can take' => [4_295_250, [4_295], [250_000]];
+        yield 'more than a day' => [2 * 86_400_000 + 1_999, [86_400, 86_400, 1], [999_000]];
+        yield 'nothing' => [0, [], []];
+        yield 'less than nothing' => [-1_500, [], []];
+    }
+
+    /**
+     * @param list<int> $seconds
+     * @param list<int> $microseconds
+     */
+    #[DataProvider('waitsSplitBetweenSleepAndUsleep')]
+    public function testSleepHandsWholeSecondsToSleepAndOnlyTheRestToUsleep(int $milliseconds, array $seconds, array $microseconds): void
+    {
+        $slept = [];
+        $uslept = [];
+
+        Sleep::milliseconds(
+            $milliseconds,
+            static function (int $wait) use (&$slept): void {
+                $slept[] = $wait;
+            },
+            static function (int $wait) use (&$uslept): void {
+                $uslept[] = $wait;
+            },
+        );
+
+        self::assertSame($seconds, $slept);
+        self::assertSame($microseconds, $uslept);
+    }
+
+    /** @return iterable<string, array{int, int, int}> */
+    public static function delaysTooLargeForFloatArithmetic(): iterable
+    {
+        // The last value is the least wait to expect. Jitter over 0 to PHP_INT_MAX is never 0 in practice,
+        // but a backoff that overflowed came out as 0 every time.
+        yield 'both PHP_INT_MAX' => [PHP_INT_MAX, PHP_INT_MAX, 1];
+        yield 'a base delay whose first doubling passes PHP_INT_MAX' => [intdiv(PHP_INT_MAX, 2) + 1, PHP_INT_MAX, 1];
+        yield 'a base delay of PHP_INT_MAX under an ordinary maxDelayMs' => [PHP_INT_MAX, 4000, 0];
+    }
+
+    #[DataProvider('delaysTooLargeForFloatArithmetic')]
+    public function testABackoffStaysWithinMaxDelayMsHoweverLargeTheDelaysAre(int $baseDelayMs, int $maxDelayMs, int $least): void
+    {
+        $sleep = new FakeSleep();
+        [$client] = TestClient::make(
+            [new MockResponse(status: 503), new MockResponse(status: 503), new MockResponse(json: ['Balances' => []])],
+            retry: new RetryOptions(maxRetries: 2, baseDelayMs: $baseDelayMs, maxDelayMs: $maxDelayMs),
+            sleep: $sleep(...),
+        );
+
+        $client->balances->list();
+
+        self::assertCount(2, $sleep->waits);
+        foreach ($sleep->waits as $wait) {
+            self::assertGreaterThanOrEqual($least, $wait);
+            self::assertLessThanOrEqual($maxDelayMs, $wait);
+        }
     }
 
     // ------------------------------------------------------------ retry policy
