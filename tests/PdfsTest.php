@@ -410,7 +410,7 @@ final class PdfsTest extends TestCase
         yield '400' => [400, 'OrderUID is required', ApiException::class];
         yield '401' => [401, 'Restricted Access', AuthException::class];
         yield '404' => [404, 'No order was found with the given OrderUID', NotFoundException::class];
-        yield '422' => [422, 'The PDF can only be fetched for orders with at most 3 receivers', ValidationException::class];
+        yield '422' => [422, 'The PDF can only be fetched for orders with at most 10 receivers', ValidationException::class];
         yield '500' => [500, 'The PDF could not be generated', ServerException::class];
     }
 

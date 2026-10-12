@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The vendored specification is the one Huuray published on 9 October 2026.
+- Gift card PDFs, in the docs only: the API now supports orders with at most 10
+  receivers (it was 3), and `pdfTemplateUid` on `pdfs->get()` and
+  `pdfs->getWhenReady()` takes a Downloadable PDF template. The client checks
+  neither: the API decides.
 - A read answered 429 with a `Retry-After` waits that many seconds, at least 1, in
   place of the computed backoff, and then asks again. When that wait is longer than
   `RetryOptions::$maxDelayMs` the client does not sleep: it throws

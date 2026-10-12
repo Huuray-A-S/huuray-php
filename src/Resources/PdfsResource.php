@@ -76,7 +76,7 @@ class PdfsResource extends AbstractResource
      * like 202 (not ready); any non-2xx throws.
      *
      * The API token needs the Search permission. The API reference says only orders
-     * with at most three receivers are supported, and rejects larger ones with a
+     * with at most 10 receivers are supported, and rejects larger ones with a
      * 422. This client checks neither that nor any argument: the API decides.
      *
      * A PDF can take a while to render and run to several megabytes. Huuray suggests
@@ -84,14 +84,15 @@ class PdfsResource extends AbstractResource
      *
      * @param string      $orderUid       The order: `orderUid` from `orders->create()` or `orders->search()`.
      * @param int|null    $voucherId      One voucher of the order. Omit it for all of them.
-     * @param string|null $pdfTemplateUid A uid from `templates->list()->pdfTemplates` to render the PDF with. Omit it
-     *                                    for the document attached to the order's delivery email.
+     * @param string|null $pdfTemplateUid The uid of a Downloadable PDF template from
+     *                                    `templates->list()->pdfTemplates` to render the PDF with. Omit it for the
+     *                                    document attached to the order's delivery email.
      * @param bool|null   $combine        True for one PDF holding every selected voucher. Omitted, the API makes
      *                                    one PDF per voucher.
      *
      * @throws NotFoundException         for an order or voucher that does not exist or is cancelled, or a PDF
      *                                   template that does not exist
-     * @throws ValidationException       for an order with more than three receivers, or a PDF template that cannot
+     * @throws ValidationException       for an order with more than 10 receivers, or a PDF template that cannot
      *                                   be used for it or is needed and missing
      * @throws RateLimitException        on a 429 that the retries a read gets did not get past
      * @throws ConnectionException       when the request did not complete, or a document's content is not valid

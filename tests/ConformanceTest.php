@@ -576,7 +576,7 @@ final class ConformanceTest extends TestCase
 
     public function testFlagsAMissingRequiredPart(): void
     {
-        // The predicted Upload schema declares no `required`, so the check is shown on one that does.
+        // The Upload schema declares no `required`, so the check is shown on one that does.
         $errors = self::spec()->validateMultipart(
             ['schema' => ['type' => 'object', 'properties' => ['File' => ['type' => 'string', 'format' => 'binary']], 'required' => ['File']]],
             [],
