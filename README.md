@@ -216,7 +216,7 @@ This is why `sendReward()` requires a `refId` even though the API treats it as o
 
 Every request has a timeout — 30 seconds by default, enforced by the transport — because a request that can hang forever never reaches this exception at all. Orders have been observed live to take longer than 30 seconds (see [CHANGELOG](CHANGELOG.md)); if yours do, raise `timeoutMs` rather than retrying.
 
-Reads *are* retried, with backoff and jitter, on connection failures, 5xx and 429. A 429 on an order is not an unknown outcome: the API did not process it. See [Errors](#errors).
+Reads *are* retried, with backoff and jitter, on connection failures and on the statuses 408, 425, 429, 500, 502, 503 and 504. A 429 on an order is not an unknown outcome: the API did not process it. See [Errors](#errors).
 
 ### 3. Synchronous and asynchronous orders are different calls
 
@@ -339,7 +339,7 @@ Every exception this library throws extends `Huuray\Exception\HuurayException`. 
 
 API exceptions carry `httpStatus`, `status`, `statusMessage`, and the decoded `body`. The client reads `StatusMessage` and falls back to the deprecated `Message`. The retained `body` is redacted, so logging an exception never leaks a voucher code.
 
-**Rate limits.** The API answers 429 when the rate limit for your IP address is exceeded: the request was not processed, and the `Retry-After` header says how many seconds to wait. `RateLimitException::$retryAfter` holds those seconds, or null when the header is absent or not whole seconds. A read is retried first, waiting `retryAfter` seconds (at least 1) in place of the backoff; if that is longer than `maxDelayMs` the client does not wait, and throws at once so you decide. Orders, resends, cancels and uploads are never retried automatically, but a 429 is never an `IndeterminateOrderException`: wait, then send the same request again.
+**Rate limits.** The API answers 429 when the rate limit for your IP address is exceeded: the request was not processed, and the `Retry-After` header says how many seconds to wait. `RateLimitException::$retryAfter` holds those seconds, or null when the header is absent or not whole seconds. A read is retried first, waiting `retryAfter` seconds (at least 1) in place of the backoff; if that wait is longer than `maxDelayMs` the client does not wait, and throws at once so you decide (with a `maxDelayMs` under 1000, that is every 429 that names a `Retry-After`). Orders, resends, cancels and uploads are never retried automatically, but a 429 is never an `IndeterminateOrderException`: wait, then send the same request again.
 
 ## Client options
 

@@ -13,9 +13,9 @@ namespace Huuray\Exception;
  *
  * A read is retried for you first: the client waits `retryAfter` seconds, at least
  * 1, in place of its own backoff. It throws this once those retries are used up,
- * or at once when `retryAfter` is longer than `RetryOptions::$maxDelayMs`. Orders,
- * resends, cancels and uploads are never retried automatically, so there it is
- * thrown at the first 429.
+ * or at once when `retryAfter`, counted as at least 1 second, is longer than
+ * `RetryOptions::$maxDelayMs`. Orders, resends, cancels and uploads are never
+ * retried automatically, so there it is thrown at the first 429.
  */
 class RateLimitException extends ApiException
 {

@@ -33,8 +33,9 @@ final readonly class RetryOptions
     public int $baseDelayMs;
 
     /**
-     * Ceiling for a single wait between attempts, in milliseconds. A 429 whose `Retry-After` asks for longer is
-     * not waited for: the read throws RateLimitException at once.
+     * Ceiling for a single wait between attempts, in milliseconds. A 429 whose `Retry-After`, counted as at least
+     * 1 second, is longer than this is not waited for: the read throws RateLimitException at once. Under 1000, that
+     * is every 429 that names a `Retry-After`.
      */
     public int $maxDelayMs;
 
