@@ -679,14 +679,43 @@ final class ClientTest extends TestCase
 
         self::assertSame([0], $sleep->waits);
         self::assertCount(2, $transport->calls);
+        self::assertNotSame($transport->calls[0]->headers['X-API-NONCE'], $transport->calls[1]->headers['X-API-NONCE']);
     }
 
-    public function testARetryAfterOnAnyOtherStatusIsNotWaitedFor(): void
+    public function testARetryAfterReplacesTheBackoffItIsNeitherAddedToItNorTheLongerOfTheTwo(): void
+    {
+        // The backoff here is jittered over 0 to 4000 ms. Twenty waits of exactly 1000 ms rule out
+        // both the two added up and the longer of the two.
+        for ($round = 0; $round < 20; $round++) {
+            $sleep = new FakeSleep();
+            [$client] = TestClient::make(
+                [new MockResponse(status: 429, headers: ['Retry-After' => '1']), new MockResponse(json: ['Balances' => []])],
+                retry: new RetryOptions(maxRetries: 1, baseDelayMs: 4000, maxDelayMs: 4000),
+                sleep: $sleep(...),
+            );
+
+            $client->balances->list();
+
+            self::assertSame([1000], $sleep->waits);
+        }
+    }
+
+    /** @return iterable<string, array{int}> */
+    public static function retryableStatusesOtherThan429(): iterable
+    {
+        foreach ([408, 425, 500, 502, 503, 504] as $status) {
+            yield 'HTTP ' . $status => [$status];
+        }
+    }
+
+    #[DataProvider('retryableStatusesOtherThan429')]
+    public function testARetryAfterOnAnyOtherRetryableStatusIsNotWaitedFor(int $status): void
     {
         // The specification gives Retry-After a meaning on a 429 only (and on the 202 of /v4/Pdf).
         $sleep = new FakeSleep();
         [$client, $transport] = TestClient::make(
-            [new MockResponse(status: 503, headers: ['Retry-After' => '3']), new MockResponse(json: ['Balances' => []])],
+            [new MockResponse(status: $status, headers: ['Retry-After' => '3']), new MockResponse(json: ['Balances' => []])],
+            // Retries are on, and a base delay of 0 makes the backoff exactly 0 ms: 3000 could only be the header.
             retry: new RetryOptions(maxRetries: 1, baseDelayMs: 0),
             sleep: $sleep(...),
         );
